@@ -114,78 +114,6 @@ func b2i(b []byte) int64 {
 	return v
 }
 
-func setup(fs *fedStore, path *string) {
-	if err := os.Chdir(*path); err != nil {
-		fmt.Fprintf(os.Stderr, "Bad path (%s): %s\n", *path, err)
-		os.Exit(1)
-	}
-
-	ioc, ior, err := fnsync(fs.upstream, "fullfiletimelist-fedora")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Can't get/load file list (%s): %s\n", fs.upstream, err)
-		os.Exit(1)
-	}
-	defer ioc.Close()
-
-	bior := bufio.NewReader(ior)
-
-	var expected_err error
-	_expect := func(expected []byte) {
-		if expected_err != nil {
-			return
-		}
-		expected_err = expect(bior, expected)
-	}
-
-	_expect([]byte("[Version]"))
-	_expect([]byte("2"))
-	_expect([]byte(""))
-	_expect([]byte("[Files]"))
-
-	err = expected_err
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Bad file list (%s): %s\n", fs.upstream, err)
-		os.Exit(1)
-	}
-
-	// Now it's a list of
-	// <timestamp> \t <type> \t <size> \t <name>
-	// 1717564457	f	282	linux/extras/README
-
-	for num := 1; true; num++ {
-		line, prefix, err := bior.ReadLine()
-
-		if err == nil && prefix { // Line too big...
-			err = fmt.Errorf("Bad line (too long)")
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Bad file list (%s:%d): %s\n", fs.upstream, 4+num, err)
-			os.Exit(1)
-
-		}
-
-		if len(line) == 0 {
-			// Don't care about checksums for isos etc.
-			break
-		}
-
-		sline := bytes.Split(line, []byte{'\t'})
-		if len(sline) != 4 {
-			err = fmt.Errorf("Bad line (bad File)")
-			fmt.Fprintf(os.Stderr, "Bad file list (%s:%d): %s\n", fs.upstream, 4+num, err)
-			os.Exit(1)
-		}
-		fmtime, ftype, fsize, fname := sline[0], sline[1], sline[2], sline[3]
-
-		switch string(ftype) {
-		case "f":
-			fs.fpaths[string(fname)] = fdata{b2i(fmtime), b2i(fsize)}
-		case "d":
-			fs.dpaths[string(fname)] = b2i(fmtime)
-		}
-	}
-}
-
 func mtime2ui(mtime int64) string {
 	return time.Unix(mtime, 0).UTC().Format("2006-01-02 15:04:05")
 }
@@ -257,7 +185,7 @@ type fedStore struct {
 	counter  int
 	mutex    sync.Mutex
 	fpaths   map[string]fdata
-	dpaths   map[string]int64
+	dpaths   map[string]fdata
 }
 
 func NewFedstore(upstream, prefix string) *fedStore {
@@ -267,7 +195,7 @@ func NewFedstore(upstream, prefix string) *fedStore {
 	ret.prefix = prefix
 	ret.beg = time.Now()
 	ret.fpaths = make(map[string]fdata)
-	ret.dpaths = make(map[string]int64)
+	ret.dpaths = make(map[string]fdata)
 	return &ret
 }
 
@@ -288,6 +216,8 @@ type httpDent struct {
 
 	mtime int64
 	size  int64
+
+	isdir bool
 }
 
 func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -295,6 +225,9 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	path := strings.TrimPrefix(req.URL.Path, fs.prefix)
 	fmt.Println("Path:", path)
+	if path == "" { // See hack below...
+		path = "/"
+	}
 
 	if strings.HasSuffix(path, "/") {
 		path := strings.TrimRight(path, "/")
@@ -340,7 +273,7 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				continue
 			}
 
-			pfiles = append(pfiles, httpDent{fname, val, -1})
+			pfiles = append(pfiles, httpDent{fname, val.mtime, val.size, true})
 		}
 
 		for key, val := range fs.fpaths {
@@ -353,7 +286,7 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				continue
 			}
 
-			pfiles = append(pfiles, httpDent{fname, val.mtime, val.size})
+			pfiles = append(pfiles, httpDent{fname, val.mtime, val.size, false})
 		}
 
 		sort.Slice(pfiles, func(i, j int) bool {
@@ -365,11 +298,11 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		</tr> `, "..", "..", "-")
 
 		for _, val := range pfiles {
-			if val.size == -1 {
+			if val.isdir {
 				// Print a directory...
 				fmt.Fprintf(w, `<tr>
-						<td> <a href="%s/">%s/</a> </td> <td>%s</td> <td>-</td>
-						</tr> `, val.name, val.name, mtime2ui(val.mtime))
+<td> <a href="%s/">%s/</a> </td> <td>%s</td> <td>%s</td>
+</tr> `, val.name, val.name, mtime2ui(val.mtime), size2ui(val.size))
 			} else {
 				// Print a file...
 				fmt.Fprintf(w, `<tr>
@@ -408,6 +341,89 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	mtime := time.Unix(int64(val.mtime), 0)
 	http.ServeContent(w, req, filepath.Base(req.URL.Path), mtime, ior)
+}
+
+func setup(fs *fedStore, path *string) {
+	if err := os.Chdir(*path); err != nil {
+		fmt.Fprintf(os.Stderr, "Bad path (%s): %s\n", *path, err)
+		os.Exit(1)
+	}
+
+	ioc, ior, err := fnsync(fs.upstream, "fullfiletimelist-fedora")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Can't get/load file list (%s): %s\n", fs.upstream, err)
+		os.Exit(1)
+	}
+	defer ioc.Close()
+
+	bior := bufio.NewReader(ior)
+
+	var expected_err error
+	_expect := func(expected []byte) {
+		if expected_err != nil {
+			return
+		}
+		expected_err = expect(bior, expected)
+	}
+
+	_expect([]byte("[Version]"))
+	_expect([]byte("2"))
+	_expect([]byte(""))
+	_expect([]byte("[Files]"))
+
+	err = expected_err
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Bad file list (%s): %s\n", fs.upstream, err)
+		os.Exit(1)
+	}
+
+	// Now it's a list of
+	// <timestamp> \t <type> \t <size> \t <name>
+	// 1717564457	f	282	linux/extras/README
+
+	for num := 1; true; num++ {
+		line, prefix, err := bior.ReadLine()
+
+		if err == nil && prefix { // Line too big...
+			err = fmt.Errorf("Bad line (too long)")
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Bad file list (%s:%d): %s\n", fs.upstream, 4+num, err)
+			os.Exit(1)
+
+		}
+
+		if len(line) == 0 {
+			// Don't care about checksums for isos etc.
+			break
+		}
+
+		sline := bytes.Split(line, []byte{'\t'})
+		if len(sline) != 4 {
+			err = fmt.Errorf("Bad line (bad File)")
+			fmt.Fprintf(os.Stderr, "Bad file list (%s:%d): %s\n", fs.upstream, 4+num, err)
+			os.Exit(1)
+		}
+		fmtime, ftype, fsize, fname := sline[0], sline[1], sline[2], sline[3]
+
+		switch string(ftype) {
+		case "f":
+			fs.fpaths[string(fname)] = fdata{b2i(fmtime), b2i(fsize)}
+		case "d":
+			fs.dpaths[string(fname)] = fdata{b2i(fmtime), -1}
+		}
+	}
+
+	fmt.Fprintln(os.Stderr, "JDBG:", "dpaths", len(fs.dpaths))
+
+	for path, val := range fs.fpaths {
+
+		for dpath := filepath.Dir(path); dpath != "."; dpath = filepath.Dir(dpath) {
+			t := fs.dpaths[dpath]
+			t.size += val.size
+			fs.dpaths[dpath] = t
+		}
+	}
 }
 
 func main() {
@@ -476,6 +492,7 @@ func main() {
 	fmt.Fprintln(os.Stderr, "JDBG:", "fs", fs.upstream, fs.prefix, len(fs.dpaths), len(fs.fpaths))
 	http.Handle(fs.prefix, fs)
 
+	fmt.Println("Ready")
 	http.ListenAndServe(":"+strconv.Itoa(*fport), nil)
 
 }

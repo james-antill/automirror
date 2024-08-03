@@ -130,7 +130,11 @@ func expect(bior *bufio.Reader, expected []byte) error {
 }
 
 func b2i(b []byte) int64 {
-	v, err := strconv.ParseInt(string(b), 10, 0)
+	return s2i(string(b))
+}
+
+func s2i(b string) int64 {
+	v, err := strconv.ParseInt(b, 10, 0)
 	if err != nil {
 		return -1
 	}
@@ -316,6 +320,12 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		sort.Slice(pfiles, func(i, j int) bool {
+			// rpmvercmp?
+			in := s2i(pfiles[i].name)
+			jn := s2i(pfiles[j].name)
+			if in != -1 && jn != -1 {
+				return in-jn < 0
+			}
 			return strings.Compare(pfiles[i].name, pfiles[j].name) < 0
 		})
 
@@ -347,7 +357,12 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
                 $('#dirdata').DataTable(
                     {
                         "paging" : false,
-                        "order": [[ 1, "asc" ]]
+						columns: [
+							{ orderSequence: ['', 'asc', 'desc'] },
+							{ orderSequence: ['', 'asc', 'desc'] },
+							{ orderSequence: ['', 'asc', 'desc'] }
+						],
+                        "order": []
                     }
                 );
             }

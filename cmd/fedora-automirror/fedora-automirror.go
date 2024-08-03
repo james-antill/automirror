@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,7 +53,8 @@ td.dtclass, th.dtclass {
 
 var counter int
 
-func fnsync(upstream, fname string) (io.Closer, io.ReadSeeker, error) {
+func fnsync(fs *fedStore, fname string) (io.Closer, io.ReadSeeker, error) {
+	upstream := fs.upstream
 	local := false
 
 	fmt.Println("Req:", fname)
@@ -93,6 +95,7 @@ func fnsync(upstream, fname string) (io.Closer, io.ReadSeeker, error) {
 			return nil, nil, http.ErrMissingFile
 		}
 
+		fs.incDwn()
 		fmt.Fprintln(os.Stdout, " -> Downloading:", resp.ContentLength, fname)
 
 		if _, err := io.Copy(nf, resp.Body); err != nil {
@@ -209,10 +212,13 @@ type fedStore struct {
 	upstream string
 	prefix   string
 	beg      time.Time
-	counter  int
-	mutex    sync.Mutex
-	fpaths   map[string]fdata
-	dpaths   map[string]fdata
+
+	counter   int // Number of requests
+	downloads int // Number of pass through downloads
+	mutex     sync.Mutex
+
+	fpaths map[string]fdata
+	dpaths map[string]fdata
 }
 
 func NewFedstore(upstream, prefix string) *fedStore {
@@ -236,6 +242,18 @@ func (fs *fedStore) getReq() int {
 	fs.mutex.Lock()
 	defer fs.mutex.Unlock()
 	return fs.counter
+}
+
+func (fs *fedStore) incDwn() {
+	fs.mutex.Lock()
+	defer fs.mutex.Unlock()
+	fs.downloads++
+}
+
+func (fs *fedStore) getDwn() int {
+	fs.mutex.Lock()
+	defer fs.mutex.Unlock()
+	return fs.downloads
 }
 
 type httpDent struct {
@@ -386,7 +404,7 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ioc, ior, err := fnsync(fs.upstream, path)
+	ioc, ior, err := fnsync(fs, path)
 	defer ioc.Close()
 	if err != nil {
 		// ErrMissingFile ?
@@ -405,7 +423,7 @@ func setup(fs *fedStore, path *string) {
 		os.Exit(1)
 	}
 
-	ioc, ior, err := fnsync(fs.upstream, "fullfiletimelist-fedora")
+	ioc, ior, err := fnsync(fs, "fullfiletimelist-fedora")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Can't get/load file list (%s): %s\n", fs.upstream, err)
 		os.Exit(1)
@@ -597,10 +615,24 @@ func main() {
 	http.HandleFunc("/stats", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		fmt.Fprintf(w, `{ "Upstream": "%s",
-		"Version:", %s,
-		"Reqs:", %d,
-		"Uptime:", %s }`, fs.upstream, version, fs.getReq(), time.Since(fs.beg))
+		fmt.Fprintf(w, `{ "Upstream": "%s",%s`, fs.upstream, "\n")
+		fmt.Fprintf(w, `  "Version":, "%s",%s`, version, "\n")
+		fmt.Fprintf(w, `  "Reqs":, %d,%s`, fs.getReq(), "\n")
+		fmt.Fprintf(w, `  "Downloads":, %d,%s`, fs.getDwn(), "\n")
+
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+
+		// Bytes of allocated heap objects
+		fmt.Fprintf(w, `  "GC-Alloc":, %d,%s`, m.Alloc, "\n")
+		// Cumulative bytes allocated for heap objects
+		fmt.Fprintf(w, `  "GC-TotalAlloc":, %d,%s`, m.TotalAlloc, "\n")
+		// Total bytes of memory obtained from the OS
+		fmt.Fprintf(w, `  "GC-Sys":, %d,%s`, m.Sys, "\n")
+		// Number of completed GC cycles
+		fmt.Fprintf(w, `  "GC-Num":, %d,%s`, m.NumGC, "\n")
+
+		fmt.Fprintf(w, `  "Uptime":, "%s" }%s`, time.Since(fs.beg), "\n")
 	})
 
 	// hfs := http.StripPrefix(fs.prefix, fs)

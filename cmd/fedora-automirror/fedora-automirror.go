@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	iofs "io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -34,20 +35,15 @@ func fnsync(upstream, fname string) (io.Closer, io.ReadSeeker, error) {
 			return nil, nil, err
 		}
 
-		fmt.Fprintln(os.Stderr, "JDBG:", "resp", resp.StatusCode, resp.ContentLength)
 		if resp.StatusCode == 200 &&
 			resp.ContentLength == fi.Size() {
 
-			fmt.Fprintln(os.Stderr, "JDBG:", "mtime", fi.ModTime())
 			pt, err := http.ParseTime(resp.Header.Get("Last-Modified"))
-			fmt.Fprintln(os.Stderr, "JDBG:", "pt", pt)
 			if err == nil && pt.Equal(fi.ModTime()) {
 				local = true
 			}
 		}
 	}
-
-	fmt.Fprintln(os.Stdout, "JDBG:", "local", local)
 
 	if !local {
 		dname := filepath.Dir(fname)
@@ -64,11 +60,11 @@ func fnsync(upstream, fname string) (io.Closer, io.ReadSeeker, error) {
 		}
 		defer resp.Body.Close()
 
-		fmt.Fprintln(os.Stderr, "JDBG:", "resp", resp.StatusCode, resp.ContentLength)
-
 		if resp.StatusCode != 200 {
 			return nil, nil, http.ErrMissingFile
 		}
+
+		fmt.Fprintln(os.Stdout, " -> Downloading:", resp.ContentLength, fname)
 
 		if _, err := io.Copy(nf, resp.Body); err != nil {
 			return nil, nil, err
@@ -82,8 +78,6 @@ func fnsync(upstream, fname string) (io.Closer, io.ReadSeeker, error) {
 			_ = os.Chtimes(fname, pt, pt)
 		}
 	}
-
-	fmt.Fprintln(os.Stdout, "JDBG:", "got")
 
 	fo, err := os.Open(fname)
 	return fo, fo, err
@@ -340,7 +334,9 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	mtime := time.Unix(int64(val.mtime), 0)
-	http.ServeContent(w, req, filepath.Base(req.URL.Path), mtime, ior)
+	fmt.Println(" -> Serving:", path)
+	http.ServeContent(w, req, filepath.Base(path), mtime, ior)
+	fmt.Println(" -> Done:", path)
 }
 
 func setup(fs *fedStore, path *string) {
@@ -414,9 +410,12 @@ func setup(fs *fedStore, path *string) {
 		}
 	}
 
-	fmt.Fprintln(os.Stderr, "JDBG:", "dpaths", len(fs.dpaths))
+	fmt.Println("Remote-Directories:", len(fs.dpaths))
+	fmt.Println("Remote-Files:", len(fs.fpaths))
 
+	var total int64
 	for path, val := range fs.fpaths {
+		total += val.size
 
 		for dpath := filepath.Dir(path); dpath != "."; dpath = filepath.Dir(dpath) {
 			t := fs.dpaths[dpath]
@@ -424,6 +423,62 @@ func setup(fs *fedStore, path *string) {
 			fs.dpaths[dpath] = t
 		}
 	}
+
+	fmt.Println("Remote-Size:", total, size2ui(total))
+
+	var lfiles int64
+	var ldirs int64
+	var lsize int64
+	var lindex int64
+	err = filepath.WalkDir(".",
+		func(path string, d iofs.DirEntry, err error) error {
+			if path == "." {
+				return nil
+			}
+			if path == "fullfiletimelist-fedora" {
+				fi, err := d.Info()
+				if err == nil {
+					lindex = fi.Size()
+				}
+				return nil
+			}
+
+			path = strings.TrimPrefix(path, "./")
+
+			if d.IsDir() {
+				_, ok := fs.dpaths[path]
+				if !ok {
+					fmt.Println(" -> Cleanup-d:", path)
+					os.RemoveAll(path)
+					return iofs.SkipDir
+				}
+
+				ldirs += 1
+			} else {
+				_, ok := fs.fpaths[path]
+				if !ok {
+					fmt.Println(" -> Cleanup:", path)
+					os.Remove(path)
+					return nil
+				}
+
+				lfiles += 1
+				fi, err := d.Info()
+				if err == nil {
+					lsize += fi.Size()
+				}
+			}
+
+			return nil
+		})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to Walk (%s): %s\n", *path, err)
+	}
+
+	fmt.Println("Local-Directories:", ldirs)
+	fmt.Println("Local-Files:", lfiles)
+	fmt.Println("Local-Size:", lsize, size2ui(lsize))
+	fmt.Println("Local-Index:", lindex, size2ui(lindex))
 }
 
 func main() {
@@ -489,7 +544,6 @@ func main() {
 	})
 
 	// hfs := http.StripPrefix(fs.prefix, fs)
-	fmt.Fprintln(os.Stderr, "JDBG:", "fs", fs.upstream, fs.prefix, len(fs.dpaths), len(fs.fpaths))
 	http.Handle(fs.prefix, fs)
 
 	fmt.Println("Ready")

@@ -21,6 +21,35 @@ import (
 
 const version = "0.1.1"
 
+// See: https://www.datatables.net
+const cssStyle = `
+   <script
+      src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+      integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+      crossorigin="anonymous">
+    </script>
+
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.22/css/jquery.dataTables.css">
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.22/js/jquery.dataTables.js"></script>
+
+        <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+            <style>
+@import url('https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700');
+body {
+        font-family:'Source Sans Pro', sans-serif;
+        margin:0;
+}
+
+h1,h2,h3,h4,h5,h6 {
+        margin:0;
+}
+
+td.dtclass, th.dtclass {
+  display: none;
+}
+            </style>
+`
+
 var counter int
 
 func fnsync(upstream, fname string) (io.Closer, io.ReadSeeker, error) {
@@ -237,21 +266,24 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		// Show a dir. listing...
+		// Show a dir. listing. Again see: https://www.datatables.net
 		w.Header().Set("Content-Type", "text/html")
 
 		fmt.Fprintf(w, `<html> 
-		<head> <title> Path: %s </title> </head>
+		<head> <title> Path: %s </title> %s </head>
 		<body>
 		<h1> Fedora Path: %s </h1>
 
-<table>
- <tr>
- <th>Name</th>
- <th>Last Modified</th>
- <th>Size</th>
- </tr>
- `, req.URL.Path, path)
+<table id="dirdata" style="compact">
+ <thead>
+  <tr>
+   <th>Name</th>
+   <th>Last Modified</th>
+   <th>Size</th>
+  </tr>
+ </thead>
+ <tbody>
+ `, req.URL.Path, cssStyle, path)
 
 		path = path + "/"
 		pfiles := []httpDent{}
@@ -306,10 +338,23 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		fmt.Fprintf(w, `
-		</table>
-		</body>
-		</html>
-		`)
+</tbody>
+</table>
+</body>
+        <script>
+        $(document).ready(
+            function() {
+                $('#dirdata').DataTable(
+                    {
+                        "paging" : false,
+                        "order": [[ 1, "asc" ]]
+                    }
+                );
+            }
+        );
+        </script>
+</html>
+`)
 		return
 	}
 

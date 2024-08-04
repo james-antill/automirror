@@ -20,7 +20,7 @@ import (
 	roc "github.com/james-antill/rename-on-close"
 )
 
-const version = "0.1.1"
+const version = "0.8.1"
 
 // See: https://www.datatables.net
 const cssStyle = `
@@ -53,15 +53,17 @@ td.dtclass, th.dtclass {
 
 var counter int
 
-func fnsync(fs *fedStore, fname string) (io.Closer, io.ReadSeeker, error) {
+func fnsync(fs *fedStore, ufname string) (io.Closer, io.ReadSeeker, error) {
+	lfname := fs.prefix[1:] + ufname
 	upstream := fs.upstream
 	local := false
 
-	fmt.Println("Req:", fname)
+	fmt.Println("Req:", lfname)
 
-	fi, err := os.Stat(fname)
+	fi, err := os.Stat(lfname)
 	if err == nil { // File exists...
-		resp, err := http.Head(upstream + "/" + fname)
+		// Use if-modified-since for a single call?
+		resp, err := http.Head(upstream + "/" + ufname)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -72,20 +74,23 @@ func fnsync(fs *fedStore, fname string) (io.Closer, io.ReadSeeker, error) {
 			pt, err := http.ParseTime(resp.Header.Get("Last-Modified"))
 			if err == nil && pt.Equal(fi.ModTime()) {
 				local = true
+				if ufname == fs.fftl {
+					fs.indextm = pt
+				}
 			}
 		}
 	}
 
 	if !local {
-		dname := filepath.Dir(fname)
+		dname := filepath.Dir(lfname)
 		os.MkdirAll(dname, 0755)
-		nf, err := roc.Create(fname)
+		nf, err := roc.Create(lfname)
 		if err != nil {
 			return nil, nil, err
 		}
 		defer nf.Close()
 
-		resp, err := http.Get(upstream + "/" + fname)
+		resp, err := http.Get(upstream + "/" + ufname)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -96,7 +101,8 @@ func fnsync(fs *fedStore, fname string) (io.Closer, io.ReadSeeker, error) {
 		}
 
 		fs.incDwn()
-		fmt.Fprintln(os.Stdout, " -> Downloading:", resp.ContentLength, fname)
+		tm := mtime2ui(time.Now().Unix())
+		fmt.Fprintln(os.Stdout, " -> Downloading:", tm, resp.ContentLength, ufname)
 
 		if _, err := io.Copy(nf, resp.Body); err != nil {
 			return nil, nil, err
@@ -107,11 +113,14 @@ func fnsync(fs *fedStore, fname string) (io.Closer, io.ReadSeeker, error) {
 
 		pt, err := http.ParseTime(resp.Header.Get("Last-Modified"))
 		if err == nil {
-			_ = os.Chtimes(fname, pt, pt)
+			_ = os.Chtimes(lfname, pt, pt)
+			if ufname == fs.fftl {
+				fs.indextm = pt
+			}
 		}
 	}
 
-	fo, err := os.Open(fname)
+	fo, err := os.Open(lfname)
 	return fo, fo, err
 }
 
@@ -211,7 +220,10 @@ type fdata struct {
 type fedStore struct {
 	upstream string
 	prefix   string
-	beg      time.Time
+	fftl     string
+
+	beg     time.Time
+	indextm time.Time
 
 	counter   int // Number of requests
 	downloads int // Number of pass through downloads
@@ -221,11 +233,13 @@ type fedStore struct {
 	dpaths map[string]fdata
 }
 
-func NewFedstore(upstream, prefix string) *fedStore {
+func NewFedstore(upstream, prefix, fftl string) *fedStore {
 	var ret fedStore
 
 	ret.upstream = upstream
 	ret.prefix = prefix
+	ret.fftl = fftl
+
 	ret.beg = time.Now()
 	ret.fpaths = make(map[string]fdata)
 	ret.dpaths = make(map[string]fdata)
@@ -266,15 +280,21 @@ type httpDent struct {
 }
 
 // breadcrumpsSplit Take a path and emit html that gives breadcrumbs
-func breadcrumpsSplit(path string) string {
-	bcs := strings.Split(path, "/")
+func breadcrumpsSplit(fs *fedStore, path string) string {
+	top := `<a href="/">/</a> `
+
+	if path == "" {
+		return top + fs.prefix[1:len(fs.prefix)-1]
+	}
+
+	bcs := strings.Split(fs.prefix[1:]+path, "/")
 
 	ret := ""
 	i := len(bcs) - 1
 	ret = bcs[i]
 	orev := "../"
 	crev := orev
-	for i--; i > 0; i-- {
+	for i--; i >= 0; i-- {
 		// Walk the path backwards...
 		bc := bcs[i]
 		prv := fmt.Sprintf(`<a href="%s">%s</a> / `, crev, bc)
@@ -282,40 +302,38 @@ func breadcrumpsSplit(path string) string {
 		crev = crev + orev
 	}
 
-	return ret
+	return top + ret
 }
 
 func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	fs.incReq()
 
+	// This is the path within the Store. Eg. "/Fedora/linux/" becomes "linux/"
 	path := strings.TrimPrefix(req.URL.Path, fs.prefix)
-	fmt.Println("Path:", path)
+	fmt.Println("URL:", req.URL.Path)
 	if path == "" { // See hack below...
 		path = "/"
 	}
 
 	if strings.HasSuffix(path, "/") {
-		path := strings.TrimRight(path, "/")
-		if path == "" { // FIXME: Giant hack atm.
-			path = req.URL.Path + "linux/"
-			http.Redirect(w, req, path, http.StatusMovedPermanently)
-			return
-		}
-
-		_, ok := fs.dpaths[path]
-		if !ok {
-			http.NotFound(w, req)
-			return
+		path = strings.TrimRight(path, "/")
+		// "" is the root of the Store...
+		if path != "" {
+			_, ok := fs.dpaths[path]
+			if !ok {
+				http.NotFound(w, req)
+				return
+			}
 		}
 
 		// Show a dir. listing. Again see: https://www.datatables.net
 		w.Header().Set("Content-Type", "text/html")
 
 		fmt.Fprintf(w, `<html> 
-		<head> <title> FP: %s </title> %s </head>
+		<head> <title> UP: %s </title> %s </head>
 		<body>
 		<h4> Mirror of: %s </h4>
-		<h1> Fedora Path: %s </h1>
+		<h1> Upstream Path: %s </h1>
 
 <table id="dirdata" style="compact">
  <thead>
@@ -326,18 +344,22 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
   </tr>
  </thead>
  <tbody>
- `, path, cssStyle, fs.upstream+"/"+path, breadcrumpsSplit(path))
+ `, path, cssStyle, fs.upstream+"/"+path, breadcrumpsSplit(fs, path))
 
-		path = path + "/"
+		dpath := path
+		if path != "" {
+			dpath += "/"
+		}
 		pfiles := []httpDent{}
+		// FIXME: Add the fs.fftl file for the root?
 		for key, val := range fs.dpaths {
 			val := val
 
-			if !strings.HasPrefix(key, path) {
+			if !strings.HasPrefix(key, dpath) {
 				continue
 			}
 
-			fname := key[len(path):]
+			fname := key[len(dpath):]
 			if strings.Index(fname, "/") != -1 {
 				continue
 			}
@@ -346,11 +368,11 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		for key, val := range fs.fpaths {
-			if !strings.HasPrefix(key, path) {
+			if !strings.HasPrefix(key, dpath) {
 				continue
 			}
 
-			fname := key[len(path):]
+			fname := key[len(dpath):]
 			if strings.Index(fname, "/") != -1 {
 				continue
 			}
@@ -420,7 +442,7 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		path = req.URL.Path + "/"
+		path := req.URL.Path + "/"
 		http.Redirect(w, req, path, http.StatusMovedPermanently)
 		return
 	}
@@ -433,18 +455,15 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	mtime := time.Unix(int64(val.mtime), 0)
-	fmt.Println(" -> Serving:", path)
-	http.ServeContent(w, req, filepath.Base(path), mtime, ior)
-	fmt.Println(" -> Done:", path)
+	tm := mtime2ui(time.Now().Unix())
+	fmt.Println(" -> Serving:", tm, req.URL.Path)
+	http.ServeContent(w, req, filepath.Base(req.URL.Path), mtime, ior)
+	tm = mtime2ui(time.Now().Unix())
+	fmt.Println(" -> Done:", tm, req.URL.Path)
 }
 
-func setup(fs *fedStore, path *string) {
-	if err := os.Chdir(*path); err != nil {
-		fmt.Fprintf(os.Stderr, "Bad path (%s): %s\n", *path, err)
-		os.Exit(1)
-	}
-
-	ioc, ior, err := fnsync(fs, "fullfiletimelist-fedora")
+func _setup(fs *fedStore) {
+	ioc, ior, err := fnsync(fs, fs.fftl)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Can't get/load file list (%s): %s\n", fs.upstream, err)
 		os.Exit(1)
@@ -509,6 +528,7 @@ func setup(fs *fedStore, path *string) {
 		}
 	}
 
+	fmt.Println("Upstream:", fs.upstream)
 	fmt.Println("Remote-Directories:", len(fs.dpaths))
 	fmt.Println("Remote-Files:", len(fs.fpaths))
 
@@ -529,12 +549,14 @@ func setup(fs *fedStore, path *string) {
 	var ldirs int64
 	var lsize int64
 	var lindex int64
-	err = filepath.WalkDir(".",
+	index := fs.prefix[1:] + fs.fftl
+	err = filepath.WalkDir(fs.prefix[1:],
 		func(path string, d iofs.DirEntry, err error) error {
-			if path == "." {
+			if path == fs.prefix[1:] {
 				return nil
 			}
-			if path == "fullfiletimelist-fedora" {
+
+			if path == index {
 				fi, err := d.Info()
 				if err == nil {
 					lindex = fi.Size()
@@ -542,10 +564,10 @@ func setup(fs *fedStore, path *string) {
 				return nil
 			}
 
-			path = strings.TrimPrefix(path, "./")
+			mpath := strings.TrimPrefix(path, fs.prefix[1:])
 
 			if d.IsDir() {
-				_, ok := fs.dpaths[path]
+				_, ok := fs.dpaths[mpath]
 				if !ok {
 					fmt.Println(" -> Cleanup-d:", path)
 					os.RemoveAll(path)
@@ -554,7 +576,7 @@ func setup(fs *fedStore, path *string) {
 
 				ldirs += 1
 			} else {
-				_, ok := fs.fpaths[path]
+				_, ok := fs.fpaths[mpath]
 				if !ok {
 					fmt.Println(" -> Cleanup:", path)
 					os.Remove(path)
@@ -571,7 +593,7 @@ func setup(fs *fedStore, path *string) {
 			return nil
 		})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to Walk (%s): %s\n", *path, err)
+		fmt.Fprintf(os.Stderr, "Failed to Walk (%s): %s\n", fs.prefix, err)
 	}
 
 	fmt.Println("Local-Directories:", ldirs)
@@ -580,14 +602,48 @@ func setup(fs *fedStore, path *string) {
 	fmt.Println("Local-Index:", lindex, size2ui(lindex))
 }
 
+func setup_Fedora() *fedStore {
+	fedora_upstream := "https://dl.fedoraproject.org/pub/fedora"
+	fedora_prefix := "/Fedora/"
+
+	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-fedora")
+	_setup(fs)
+	return fs
+}
+
+func setup_EPEL() *fedStore {
+	fedora_upstream := "https://dl.fedoraproject.org/pub/epel"
+	fedora_prefix := "/EPEL/"
+
+	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-epel")
+	_setup(fs)
+	return fs
+}
+
+func setup_Fedora2nd() *fedStore {
+	fedora_upstream := "https://dl.fedoraproject.org/pub/fedora-secondary"
+	fedora_prefix := "/Fedora-secondary/"
+
+	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-fedora-secondary")
+	_setup(fs)
+	return fs
+}
+
+func setup_FedoraAlt() *fedStore {
+	fedora_upstream := "https://dl.fedoraproject.org/pub/alt"
+	fedora_prefix := "/Fedora-alt/"
+
+	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-alt")
+	_setup(fs)
+	return fs
+}
+
 func main() {
 	var (
-		fhelp     = flag.Bool("help", false, "display this message")
-		fversion  = flag.Bool("version", false, "display version")
-		fupstream = flag.String("upstream", "https://dl.fedoraproject.org/pub/fedora", `upstream URL`)
-		fprefix   = flag.String("prefix", "/Fedora", `prefix for Fedora`)
-		fport     = flag.Int("P", 80, `default port to use (default: 80)`)
-		fpath     = flag.String("path", "Fedora", `prefix for Fedora`)
+		fhelp    = flag.Bool("help", false, "display this message")
+		fversion = flag.Bool("version", false, "display version")
+		fport    = flag.Int("P", 80, `default port to use (default: 80)`)
+		fpath    = flag.String("path", ".", `Root for storage`)
 	)
 
 	flag.Parse()
@@ -602,20 +658,18 @@ func main() {
 		os.Exit(0)
 	}
 
-	if (*fprefix)[0] != '/' {
-		*fprefix = "/" + *fprefix
-	}
-	if (*fprefix)[len(*fprefix)-1] != '/' {
-		*fprefix = *fprefix + "/"
-	}
-
-	if strings.Index(*fprefix, "//") != -1 {
-		fmt.Fprintln(os.Stderr, "Bad prefix (contains //):", *fprefix)
-		os.Exit(1)
+	if *fpath != "." {
+		if err := os.Chdir(*fpath); err != nil {
+			fmt.Fprintf(os.Stderr, "Bad path (%s): %s\n", *fpath, err)
+			os.Exit(1)
+		}
 	}
 
-	fs := NewFedstore(*fupstream, *fprefix)
-	setup(fs, fpath)
+	// centfs := setup_CentOS()
+	epelfs := setup_EPEL()
+	fedfs := setup_Fedora()
+	fed2fs := setup_Fedora2nd()
+	fedafs := setup_FedoraAlt()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -626,19 +680,33 @@ func main() {
 		<h1> %s </h1>
 		<ul>
 		<li> <a href="/stats">stats</a></li>
-		<li> <a href="%s">Fedora</a></li>
+		<li> <a href="/CentOS/">CentOS</a></li>
+		<li> <a href="/EPEL/">EPEL</a> - Updated: %s</li>
+		<li> <a href="/Fedora/">Fedora</a> - Updated: %s</li>
+		<li> <a href="/Fedora-secondary/">Fedora secondary arches</a> - Updated: %s</li>
+		<li> <a href="/Fedora-alt/">Fedora alt</a> - Updated: %s</li>
 		</ul>
 		</body>
 		</html>
-		`, "Fedora automirror", "Fedora automirror", fs.prefix)
+		`, "Fedora automirror", "Fedora automirror",
+			mtime2ui(epelfs.indextm.Unix()), mtime2ui(fedfs.indextm.Unix()),
+			mtime2ui(fed2fs.indextm.Unix()), mtime2ui(fedafs.indextm.Unix()))
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
 		fmt.Fprintf(w, `{ "Version":, "%s",%s`, version, "\n")
-		fmt.Fprintf(w, `  "Reqs":, %d,%s`, fs.getReq(), "\n")
-		fmt.Fprintf(w, `  "Downloads":, %d,%s`, fs.getDwn(), "\n")
+		// fmt.Fprintf(w, `  "CentOS-Reqs":, %d,%s`, centfs.getReq(), "\n")
+		// fmt.Fprintf(w, `  "CentOS-Downloads":, %d,%s`, centfs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "EPEL-Reqs":, %d,%s`, epelfs.getReq(), "\n")
+		fmt.Fprintf(w, `  "EPEL-Downloads":, %d,%s`, epelfs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "Fedora-Reqs":, %d,%s`, fedfs.getReq(), "\n")
+		fmt.Fprintf(w, `  "Fedora-Downloads":, %d,%s`, fedfs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "Fedora2nd-Reqs":, %d,%s`, fed2fs.getReq(), "\n")
+		fmt.Fprintf(w, `  "Fedora2nd-Downloads":, %d,%s`, fed2fs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "FedoraAlt-Reqs":, %d,%s`, fedafs.getReq(), "\n")
+		fmt.Fprintf(w, `  "FedoraAlt-Downloads":, %d,%s`, fedafs.getDwn(), "\n")
 
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
@@ -652,11 +720,15 @@ func main() {
 		// Number of completed GC cycles
 		fmt.Fprintf(w, `  "GC-Num":, %d,%s`, m.NumGC, "\n")
 
-		fmt.Fprintf(w, `  "Uptime":, "%s" }%s`, time.Since(fs.beg), "\n")
+		fmt.Fprintf(w, `  "Uptime":, "%s" }%s`, time.Since(fedfs.beg), "\n")
 	})
 
 	// hfs := http.StripPrefix(fs.prefix, fs)
-	http.Handle(fs.prefix, fs)
+	//	http.Handle("/CentOS/", centfs)
+	http.Handle(epelfs.prefix, epelfs)
+	http.Handle(fedfs.prefix, fedfs)
+	http.Handle(fed2fs.prefix, fed2fs)
+	http.Handle(fedafs.prefix, fedafs)
 
 	fmt.Println("Ready")
 	http.ListenAndServe(":"+strconv.Itoa(*fport), nil)

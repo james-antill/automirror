@@ -54,7 +54,24 @@ td.dtclass, th.dtclass {
 
 var counter int
 
-func fnsync(fs *fedStore, ufname string) (io.Closer, io.ReadSeeker, error) {
+func _fnHEAD(url string, mtime time.Time, size int64) bool {
+	resp, err := http.Head(url)
+	if err != nil {
+		return false
+	}
+
+	if resp.StatusCode == 200 && resp.ContentLength == size {
+		pt, err := http.ParseTime(resp.Header.Get("Last-Modified"))
+		if err == nil && pt.Equal(mtime) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func fnsync(fs *fedStore, ufname string, ent automirror.FSnode) (
+	io.Closer, io.ReadSeeker, error) {
 	lfname := fs.prefix[1:] + ufname
 	upstream := fs.upstream
 	local := false
@@ -63,21 +80,21 @@ func fnsync(fs *fedStore, ufname string) (io.Closer, io.ReadSeeker, error) {
 
 	fi, err := os.Stat(lfname)
 	if err == nil { // File exists...
-		// Use if-modified-since for a single call?
-		resp, err := http.Head(upstream + "/" + ufname)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		if resp.StatusCode == 200 &&
-			resp.ContentLength == fi.Size() {
-
-			pt, err := http.ParseTime(resp.Header.Get("Last-Modified"))
-			if err == nil && pt.Equal(fi.ModTime()) {
+		if ent != nil {
+			// We can't do fi.ModTime().Equal(ent.ModTime()) &&
+			// ...because in the fullfiletimelist data the mtime is actually:
+			// max(mtime, ctime)
+			if fi.Size() == ent.Size() {
 				local = true
-				if ufname == fs.fftl {
-					fs.indextm = pt
-				}
+				// } else {
+				//	fmt.Println("JDBG:", "tm:", fi.ModTime(), ent.ModTime())
+				//	fmt.Println("JDBG:", "sz:", fi.Size(), ent.Size())
+			}
+		} else {
+			// Use if-modified-since for a single call?
+			local = _fnHEAD(upstream+"/"+ufname, fi.ModTime(), fi.Size())
+			if local && ufname == fs.fftl {
+				fs.indextm = fi.ModTime()
 			}
 		}
 	}
@@ -416,7 +433,7 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ioc, ior, err := fnsync(fs, path)
+	ioc, ior, err := fnsync(fs, path, val)
 	defer ioc.Close()
 	if err != nil {
 		// ErrMissingFile ?
@@ -432,7 +449,7 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func _setup(fs *fedStore) {
-	ioc, ior, err := fnsync(fs, fs.fftl)
+	ioc, ior, err := fnsync(fs, fs.fftl, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Can't get/load file list (%s): %s\n", fs.upstream, err)
 		os.Exit(1)

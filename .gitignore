@@ -2,3 +2,5 @@
 abcd
 cmd/fedora-automirror/Fedora
 cmd/fedora-automirror/fedora-automirror
+cmd/fedora-automirror/fedora-automirror.bin.darwin-amd64
+cmd/fedora-automirror/fedora-automirror.bin.linux-amd64

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/james-antill/automirror"
 	roc "github.com/james-antill/rename-on-close"
 )
 
@@ -213,10 +214,6 @@ func size2ui(size int64) string {
 	return formatKB(int64(size))
 }
 
-type fdata struct {
-	mtime int64
-	size  int64
-}
 type fedStore struct {
 	upstream string
 	prefix   string
@@ -229,8 +226,7 @@ type fedStore struct {
 	downloads int // Number of pass through downloads
 	mutex     sync.Mutex
 
-	fpaths map[string]fdata
-	dpaths map[string]fdata
+	fdata *automirror.RootFS
 }
 
 func NewFedstore(upstream, prefix, fftl string) *fedStore {
@@ -241,8 +237,8 @@ func NewFedstore(upstream, prefix, fftl string) *fedStore {
 	ret.fftl = fftl
 
 	ret.beg = time.Now()
-	ret.fpaths = make(map[string]fdata)
-	ret.dpaths = make(map[string]fdata)
+	ret.fdata = automirror.NewRoot()
+
 	return &ret
 }
 
@@ -318,12 +314,14 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if strings.HasSuffix(path, "/") {
 		path = strings.TrimRight(path, "/")
 		// "" is the root of the Store...
+		dent := fs.fdata.RootDir()
 		if path != "" {
-			_, ok := fs.dpaths[path]
-			if !ok {
+			n, ok := fs.fdata.Lookup(path)
+			if !ok || !n.IsDir() {
 				http.NotFound(w, req)
 				return
 			}
+			dent = n
 		}
 
 		// Show a dir. listing. Again see: https://www.datatables.net
@@ -350,61 +348,34 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if path != "" {
 			dpath += "/"
 		}
-		pfiles := []httpDent{}
 		// FIXME: Add the fs.fftl file for the root?
-		for key, val := range fs.dpaths {
-			val := val
+		ents := dent.Children()
 
-			if !strings.HasPrefix(key, dpath) {
-				continue
-			}
-
-			fname := key[len(dpath):]
-			if strings.Index(fname, "/") != -1 {
-				continue
-			}
-
-			pfiles = append(pfiles, httpDent{fname, val.mtime, val.size, true})
-		}
-
-		for key, val := range fs.fpaths {
-			if !strings.HasPrefix(key, dpath) {
-				continue
-			}
-
-			fname := key[len(dpath):]
-			if strings.Index(fname, "/") != -1 {
-				continue
-			}
-
-			pfiles = append(pfiles, httpDent{fname, val.mtime, val.size, false})
-		}
-
-		sort.Slice(pfiles, func(i, j int) bool {
+		sort.Slice(ents, func(i, j int) bool {
 			// rpmvercmp?
-			in := s2i(pfiles[i].name)
-			jn := s2i(pfiles[j].name)
+			in := s2i(ents[i].Name())
+			jn := s2i(ents[j].Name())
 			if in != -1 && jn != -1 {
 				return in-jn < 0
 			}
-			return strings.Compare(pfiles[i].name, pfiles[j].name) < 0
+			return strings.Compare(ents[i].Name(), ents[j].Name()) < 0
 		})
 
 		fmt.Fprintf(w, `<tr>
 		<td> <a href="%s/">%s/</a> </td> <td>%s</td> <td>-</td>
 		</tr> `, "..", "..", "-")
 
-		for _, val := range pfiles {
-			if val.isdir {
+		for _, val := range ents {
+			if val.IsDir() {
 				// Print a directory...
 				fmt.Fprintf(w, `<tr>
 <td> <a href="%s/">%s/</a> </td> <td>%s</td> <td>%s</td>
-</tr> `, val.name, val.name, mtime2ui(val.mtime), size2ui(val.size))
+</tr> `, val.Name(), val.Name(), mtime2ui(val.MtimeS()), size2ui(val.Size()))
 			} else {
 				// Print a file...
 				fmt.Fprintf(w, `<tr>
 <td> <a href="%s">%s</a> </td> <td>%s</td> <td>%s</td>
-</tr> `, val.name, val.name, mtime2ui(val.mtime), size2ui(val.size))
+</tr> `, val.Name(), val.Name(), mtime2ui(val.MtimeS()), size2ui(val.Size()))
 			}
 		}
 
@@ -434,14 +405,12 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	val, ok := fs.fpaths[path]
+	val, ok := fs.fdata.Lookup(path)
 	if !ok {
-		_, ok = fs.dpaths[path]
-		if !ok {
-			http.NotFound(w, req)
-			return
-		}
-
+		http.NotFound(w, req)
+		return
+	}
+	if val.IsDir() {
 		path := req.URL.Path + "/"
 		http.Redirect(w, req, path, http.StatusMovedPermanently)
 		return
@@ -454,7 +423,7 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		panic(http.ErrAbortHandler)
 	}
 
-	mtime := time.Unix(int64(val.mtime), 0)
+	mtime := val.ModTime()
 	tm := mtime2ui(time.Now().Unix())
 	fmt.Println(" -> Serving:", tm, req.URL.Path)
 	http.ServeContent(w, req, filepath.Base(req.URL.Path), mtime, ior)
@@ -522,26 +491,23 @@ func _setup(fs *fedStore) {
 
 		switch string(ftype) {
 		case "f":
-			fs.fpaths[string(fname)] = fdata{b2i(fmtime), b2i(fsize)}
+			fs.fdata.AddFile(string(fname), b2i(fmtime), b2i(fsize))
 		case "d":
-			fs.dpaths[string(fname)] = fdata{b2i(fmtime), -1}
+			sfname := string(fname)
+			n, ok := fs.fdata.Lookup(sfname)
+			if ok {
+				n.SetMtimeS(b2i(fmtime))
+			} else {
+				fs.fdata.AddDirectory(string(fname), b2i(fmtime))
+			}
 		}
 	}
 
 	fmt.Println("Upstream:", fs.upstream)
-	fmt.Println("Remote-Directories:", len(fs.dpaths))
-	fmt.Println("Remote-Files:", len(fs.fpaths))
+	fmt.Println("Remote-Directories:", fs.fdata.NumDirs())
+	fmt.Println("Remote-Files:", fs.fdata.NumFiles())
 
-	var total int64
-	for path, val := range fs.fpaths {
-		total += val.size
-
-		for dpath := filepath.Dir(path); dpath != "."; dpath = filepath.Dir(dpath) {
-			t := fs.dpaths[dpath]
-			t.size += val.size
-			fs.dpaths[dpath] = t
-		}
-	}
+	total := fs.fdata.RootDir().Size()
 
 	fmt.Println("Remote-Size:", total, size2ui(total))
 
@@ -566,23 +532,30 @@ func _setup(fs *fedStore) {
 
 			mpath := strings.TrimPrefix(path, fs.prefix[1:])
 
-			if d.IsDir() {
-				_, ok := fs.dpaths[mpath]
-				if !ok {
+			ent, ok := fs.fdata.Lookup(mpath)
+			if !ok {
+				if d.IsDir() {
 					fmt.Println(" -> Cleanup-d:", path)
-					os.RemoveAll(path)
+					// os.RemoveAll(path)
+					return iofs.SkipDir
+				} else {
+					fmt.Println(" -> Cleanup:", path)
+					// os.Remove(path)
+				}
+				return nil
+			}
+			if ent.IsDir() != d.IsDir() {
+				fmt.Println(" -> Cleanup-s:", ent.IsDir(), d.IsDir(), path)
+				// os.RemoveAll(path)
+				if d.IsDir() {
 					return iofs.SkipDir
 				}
+				return nil
+			}
 
+			if d.IsDir() {
 				ldirs += 1
 			} else {
-				_, ok := fs.fpaths[mpath]
-				if !ok {
-					fmt.Println(" -> Cleanup:", path)
-					os.Remove(path)
-					return nil
-				}
-
 				lfiles += 1
 				fi, err := d.Info()
 				if err == nil {

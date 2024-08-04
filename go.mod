@@ -1,4 +1,4 @@
-module github.com/james-antill/fedora-automirror
+module github.com/james-antill/automirror
 
 go 1.21.0
 

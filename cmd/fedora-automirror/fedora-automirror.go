@@ -265,6 +265,26 @@ type httpDent struct {
 	isdir bool
 }
 
+// breadcrumpsSplit Take a path and emit html that gives breadcrumbs
+func breadcrumpsSplit(path string) string {
+	bcs := strings.Split(path, "/")
+
+	ret := ""
+	i := len(bcs) - 1
+	ret = bcs[i]
+	orev := "../"
+	crev := orev
+	for i--; i > 0; i-- {
+		// Walk the path backwards...
+		bc := bcs[i]
+		prv := fmt.Sprintf(`<a href="%s">%s</a> / `, crev, bc)
+		ret = prv + ret
+		crev = crev + orev
+	}
+
+	return ret
+}
+
 func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	fs.incReq()
 
@@ -292,8 +312,9 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 
 		fmt.Fprintf(w, `<html> 
-		<head> <title> Path: %s </title> %s </head>
+		<head> <title> FP: %s </title> %s </head>
 		<body>
+		<h4> Mirror of: %s </h4>
 		<h1> Fedora Path: %s </h1>
 
 <table id="dirdata" style="compact">
@@ -305,7 +326,7 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
   </tr>
  </thead>
  <tbody>
- `, req.URL.Path, cssStyle, path)
+ `, path, cssStyle, fs.upstream+"/"+path, breadcrumpsSplit(path))
 
 		path = path + "/"
 		pfiles := []httpDent{}
@@ -615,8 +636,7 @@ func main() {
 	http.HandleFunc("/stats", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		fmt.Fprintf(w, `{ "Upstream": "%s",%s`, fs.upstream, "\n")
-		fmt.Fprintf(w, `  "Version":, "%s",%s`, version, "\n")
+		fmt.Fprintf(w, `{ "Version":, "%s",%s`, version, "\n")
 		fmt.Fprintf(w, `  "Reqs":, %d,%s`, fs.getReq(), "\n")
 		fmt.Fprintf(w, `  "Downloads":, %d,%s`, fs.getDwn(), "\n")
 

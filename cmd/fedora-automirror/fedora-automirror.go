@@ -283,6 +283,18 @@ func (fs *fedStore) getDwn() int {
 	return fs.downloads
 }
 
+func (fs *fedStore) NumDirs() int64 {
+	return fs.fdata.NumDirs()
+}
+
+func (fs *fedStore) NumFiles() int64 {
+	return fs.fdata.NumFiles()
+}
+
+func (fs *fedStore) Size() int64 {
+	return fs.fdata.RootDir().Size()
+}
+
 type httpDent struct {
 	name string
 

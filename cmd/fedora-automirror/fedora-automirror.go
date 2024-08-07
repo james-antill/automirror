@@ -17,6 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
+
 	"github.com/james-antill/automirror"
 	roc "github.com/james-antill/rename-on-close"
 )
@@ -175,6 +178,10 @@ func mtime2ui(mtime int64) string {
 	return time.Unix(mtime, 0).UTC().Format("2006-01-02 15:04:05")
 }
 
+func since2ui(mtime time.Time) string {
+	return time.Since(mtime).Truncate(time.Millisecond).String()
+}
+
 // Copied from mtree -----------
 // UI names for KiloBytes etc.
 const (
@@ -229,6 +236,11 @@ func formatKB(i int64) string {
 
 func size2ui(size int64) string {
 	return formatKB(int64(size))
+}
+
+func num2ui(size int64) string {
+	p := message.NewPrinter(language.English)
+	return p.Sprintf("%d", size)
 }
 
 type fedStore struct {

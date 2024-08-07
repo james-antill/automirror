@@ -122,7 +122,7 @@ func fnsync(fs *fedStore, ufname string, ent automirror.FSnode) (
 		}
 
 		fs.incDwn()
-		tm := mtime2ui(time.Now().Unix())
+		tm := time2ui(time.Now())
 		fmt.Fprintln(os.Stdout, " -> Downloading:", tm, resp.ContentLength, ufname)
 
 		if _, err := io.Copy(nf, resp.Body); err != nil {
@@ -174,8 +174,16 @@ func s2i(b string) int64 {
 	return v
 }
 
+func time2ui(mtime time.Time) string {
+	return mtime.UTC().Format("2006-01-02 15:04:05")
+}
+
 func mtime2ui(mtime int64) string {
 	return time.Unix(mtime, 0).UTC().Format("2006-01-02 15:04:05")
+}
+
+func time2rfc(mtime time.Time) string {
+	return mtime.UTC().Format(time.RFC3339)
 }
 
 func since2ui(mtime time.Time) string {
@@ -244,6 +252,7 @@ func num2ui(size int64) string {
 }
 
 type fedStore struct {
+	name     string
 	upstream string
 	prefix   string
 	fftl     string
@@ -251,16 +260,17 @@ type fedStore struct {
 	beg     time.Time
 	indextm time.Time
 
-	counter   int // Number of requests
-	downloads int // Number of pass through downloads
+	counter   int64 // Number of requests
+	downloads int64 // Number of pass through downloads
 	mutex     sync.Mutex
 
 	fdata *automirror.RootFS
 }
 
-func NewFedstore(upstream, prefix, fftl string) *fedStore {
+func NewFedstore(name, upstream, prefix, fftl string) *fedStore {
 	var ret fedStore
 
+	ret.name = name
 	ret.upstream = upstream
 	ret.prefix = prefix
 	ret.fftl = fftl
@@ -277,7 +287,7 @@ func (fs *fedStore) incReq() {
 	fs.counter++
 }
 
-func (fs *fedStore) getReq() int {
+func (fs *fedStore) getReq() int64 {
 	fs.mutex.Lock()
 	defer fs.mutex.Unlock()
 	return fs.counter
@@ -289,7 +299,7 @@ func (fs *fedStore) incDwn() {
 	fs.downloads++
 }
 
-func (fs *fedStore) getDwn() int {
+func (fs *fedStore) getDwn() int64 {
 	fs.mutex.Lock()
 	defer fs.mutex.Unlock()
 	return fs.downloads
@@ -465,10 +475,10 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	mtime := val.ModTime()
-	tm := mtime2ui(time.Now().Unix())
+	tm := time2ui(time.Now())
 	fmt.Println(" -> Serving:", tm, req.URL.Path)
 	http.ServeContent(w, req, filepath.Base(req.URL.Path), mtime, ior)
-	tm = mtime2ui(time.Now().Unix())
+	tm = time2ui(time.Now())
 	fmt.Println(" -> Done:", tm, req.URL.Path)
 }
 
@@ -615,55 +625,67 @@ func _setup(fs *fedStore) {
 }
 
 func setup_Fedora() *fedStore {
-	fedora_upstream := "https://dl.fedoraproject.org/pub/fedora"
-	fedora_prefix := "/Fedora/"
+	name := "Fedora"
+	upstream := "https://dl.fedoraproject.org/pub/fedora"
+	prefix := "/Fedora/"
+	fftl := "fullfiletimelist-fedora"
 
-	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-fedora")
+	fs := NewFedstore(name, upstream, prefix, fftl)
 	_setup(fs)
 	return fs
 }
 
 func setup_EPEL() *fedStore {
-	fedora_upstream := "https://dl.fedoraproject.org/pub/epel"
-	fedora_prefix := "/EPEL/"
+	name := "EPEL"
+	upstream := "https://dl.fedoraproject.org/pub/epel"
+	prefix := "/EPEL/"
+	fftl := "fullfiletimelist-epel"
 
-	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-epel")
+	fs := NewFedstore(name, upstream, prefix, fftl)
 	_setup(fs)
 	return fs
 }
 
 func setup_Fedora2nd() *fedStore {
-	fedora_upstream := "https://dl.fedoraproject.org/pub/fedora-secondary"
-	fedora_prefix := "/Fedora-secondary/"
+	name := "Fedora secondary"
+	upstream := "https://dl.fedoraproject.org/pub/fedora-secondary"
+	prefix := "/Fedora-secondary/"
+	fftl := "fullfiletimelist-fedora-secondary"
 
-	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-fedora-secondary")
+	fs := NewFedstore(name, upstream, prefix, fftl)
 	_setup(fs)
 	return fs
 }
 
 func setup_FedoraAlt() *fedStore {
-	fedora_upstream := "https://dl.fedoraproject.org/pub/alt"
-	fedora_prefix := "/Fedora-alt/"
+	name := "Fedora alt"
+	upstream := "https://dl.fedoraproject.org/pub/alt"
+	prefix := "/Fedora-alt/"
+	fftl := "fullfiletimelist-alt"
 
-	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-alt")
+	fs := NewFedstore(name, upstream, prefix, fftl)
 	_setup(fs)
 	return fs
 }
 
 func setup_Rocky() *fedStore {
-	fedora_upstream := "https://dl.rockylinux.org/pub/rocky"
-	fedora_prefix := "/Rocky/"
+	name := "Rocky"
+	upstream := "https://dl.rockylinux.org/pub/rocky"
+	prefix := "/Rocky/"
+	fftl := "fullfiletimelist-rocky"
 
-	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-rocky")
+	fs := NewFedstore(name, upstream, prefix, fftl)
 	_setup(fs)
 	return fs
 }
 
 func setup_RockySIG() *fedStore {
-	fedora_upstream := "https://dl.rockylinux.org/pub/sig"
-	fedora_prefix := "/Rocky-SIG/"
+	name := "Rocky SIG"
+	upstream := "https://dl.rockylinux.org/pub/sig"
+	prefix := "/Rocky-SIG/"
+	fftl := "fullfiletimelist-sig"
 
-	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-sig")
+	fs := NewFedstore(name, upstream, prefix, fftl)
 	_setup(fs)
 	return fs
 }
@@ -706,66 +728,85 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 
-		fmt.Fprintf(w, `<html> 
+		mirprnt := func(fs *fedStore) {
+			fmt.Fprintf(w, ` <li> <a href="%s">%s</a> - %s @%s</li>
+`, fs.prefix, fs.name, size2ui(fs.Size()), since2ui(fs.indextm))
+		}
+
+		fmt.Fprintf(w, `<html>
 		<head> <title> %s </title> </head>
 		<body>
 		<h1> %s </h1>
 		<ul>
 		<li> <a href="/stats">stats</a></li>
-		<li> <a href="/EPEL/">EPEL</a> - Updated: %s - %s; Size: %s; Files: %s</li>
-		<li> <a href="/Fedora/">Fedora</a> - Updated: %s - %s; Size: %s; Files: %s</li>
-		<li> <a href="/Fedora-secondary/">Fedora secondary arches</a> - Updated: %s - %s; Size: %s; Files: %s</li>
-		<li> <a href="/Fedora-alt/">Fedora alt</a> - Updated: %s - %s; Size: %s; Files: %s</li>
-		<li> <a href="/Rocky/">Rocky</a> - Updated: %s - %s; Size: %s; Files: %s</li>
-		<li> <a href="/Rocky-SIG/">Rocky-SIG</a> - Updated: %s (%s); Size: %s; Files: %s</li>
+`, "Fedora automirror", "Fedora automirror")
+
+		mirprnt(epelfs)
+		mirprnt(fedfs)
+		mirprnt(fed2fs)
+		mirprnt(fedafs)
+		mirprnt(rockfs)
+		mirprnt(rocsfs)
+
+		fmt.Fprintf(w, `
 		</ul>
 		</body>
 		</html>
-		`, "Fedora automirror", "Fedora automirror",
-			mtime2ui(epelfs.indextm.Unix()), since2ui(epelfs.indextm),
-			size2ui(epelfs.Size()), num2ui(epelfs.NumFiles()),
-			mtime2ui(fedfs.indextm.Unix()), since2ui(fedfs.indextm),
-			size2ui(fedfs.Size()), num2ui(fedfs.NumFiles()),
-			mtime2ui(fed2fs.indextm.Unix()), since2ui(fed2fs.indextm),
-			size2ui(fed2fs.Size()), num2ui(fed2fs.NumFiles()),
-			mtime2ui(fedafs.indextm.Unix()), since2ui(fedafs.indextm),
-			size2ui(fedafs.Size()), num2ui(fedafs.NumFiles()),
-			mtime2ui(rockfs.indextm.Unix()), since2ui(rockfs.indextm),
-			size2ui(rockfs.Size()), num2ui(rockfs.NumFiles()),
-			mtime2ui(rocsfs.indextm.Unix()), since2ui(rocsfs.indextm),
-			size2ui(rocsfs.Size()), num2ui(rocsfs.NumFiles()))
+`)
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
+		mirprnt := func(fs *fedStore, last bool) {
+			fmt.Fprintf(w, `  "%s": { `, fs.name)
+			reqs := fs.getReq()
+			dls := fs.getDwn()
+			comma := ","
+			if last {
+				comma = ""
+			}
+
+			fmt.Fprintf(w, `  "DATA": { `)
+			fmt.Fprintf(w, `  "Updated-Time": "%s",%s`, time2rfc(fs.indextm), "\n")
+			fmt.Fprintf(w, `  "Dirs": %d,%s`, fs.NumDirs(), "\n")
+			fmt.Fprintf(w, `  "Files": %d,%s`, fs.NumFiles(), "\n")
+			fmt.Fprintf(w, `  "Size": %d,%s`, fs.Size(), "\n")
+			fmt.Fprintf(w, `  "Reqs": %d,%s`, reqs, "\n")
+			fmt.Fprintf(w, `  "Downloads": %d },%s`, dls, "\n")
+			fmt.Fprintf(w, `  "UI": { `)
+			fmt.Fprintf(w, `  "Updated-Time": "%s",%s`, time2ui(fs.indextm), "\n")
+			fmt.Fprintf(w, `  "Updated-Seconds": "%s",%s`, since2ui(fs.indextm), "\n")
+			fmt.Fprintf(w, `  "Dirs": "%s",%s`, num2ui(fs.NumDirs()), "\n")
+			fmt.Fprintf(w, `  "Files": "%s",%s`, num2ui(fs.NumFiles()), "\n")
+			fmt.Fprintf(w, `  "Size": "%s",%s`, size2ui(fs.Size()), "\n")
+			fmt.Fprintf(w, `  "Reqs": "%s",%s`, num2ui(reqs), "\n")
+			fmt.Fprintf(w, `  "Downloads": "%s" } }%s%s`, num2ui(dls), comma, "\n")
+		}
+
 		fmt.Fprintf(w, `{ "Version": "%s",%s`, version, "\n")
-		// fmt.Fprintf(w, `  "CentOS-Reqs": %d,%s`, centfs.getReq(), "\n")
-		// fmt.Fprintf(w, `  "CentOS-Downloads": %d,%s`, centfs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "EPEL-Reqs": %d,%s`, epelfs.getReq(), "\n")
-		fmt.Fprintf(w, `  "EPEL-Downloads": %d,%s`, epelfs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "Fedora-Reqs": %d,%s`, fedfs.getReq(), "\n")
-		fmt.Fprintf(w, `  "Fedora-Downloads": %d,%s`, fedfs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "Fedora2nd-Reqs": %d,%s`, fed2fs.getReq(), "\n")
-		fmt.Fprintf(w, `  "Fedora2nd-Downloads": %d,%s`, fed2fs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "FedoraAlt-Reqs": %d,%s`, fedafs.getReq(), "\n")
-		fmt.Fprintf(w, `  "FedoraAlt-Downloads": %d,%s`, fedafs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "Rocky-Reqs": %d,%s`, rockfs.getReq(), "\n")
-		fmt.Fprintf(w, `  "Rocky-Downloads": %d,%s`, rockfs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "RockySIG-Reqs": %d,%s`, rocsfs.getReq(), "\n")
-		fmt.Fprintf(w, `  "RockySIG-Downloads": %d,%s`, rocsfs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "Mirrors": {%s`, "\n")
+		mirprnt(epelfs, false)
+		mirprnt(fedfs, false)
+		mirprnt(fed2fs, false)
+		mirprnt(fedafs, false)
+		mirprnt(rockfs, false)
+		mirprnt(rocsfs, true)
+		fmt.Fprintf(w, `  }, %s`, "\n")
 
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
 
+		fmt.Fprintf(w, `  "GC": {%s`, "\n")
 		// Bytes of allocated heap objects
-		fmt.Fprintf(w, `  "GC-Alloc": %d,%s`, m.Alloc, "\n")
+		fmt.Fprintf(w, `  "Alloc": %d,%s`, m.Alloc, "\n")
 		// Cumulative bytes allocated for heap objects
-		fmt.Fprintf(w, `  "GC-TotalAlloc": %d,%s`, m.TotalAlloc, "\n")
+		fmt.Fprintf(w, `  "TotalAlloc": %d,%s`, m.TotalAlloc, "\n")
 		// Total bytes of memory obtained from the OS
-		fmt.Fprintf(w, `  "GC-Sys": %d,%s`, m.Sys, "\n")
+		fmt.Fprintf(w, `  "Sys": %d,%s`, m.Sys, "\n")
 		// Number of completed GC cycles
-		fmt.Fprintf(w, `  "GC-Num": %d,%s`, m.NumGC, "\n")
+		fmt.Fprintf(w, `  "Num": %d%s`, m.NumGC, "\n")
+		fmt.Fprintf(w, `  }, %s`, "\n")
 
 		fmt.Fprintf(w, `  "Uptime": "%s" }%s`, since2ui(fedfs.beg), "\n")
 	})

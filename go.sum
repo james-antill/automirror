@@ -1,2 +1,4 @@
 github.com/james-antill/rename-on-close v0.0.0-20181008023607-cfbc20f39567 h1:wFc3/DX/8p5wHnY3cckwlD1sk5mqIWW0Lgg/UrE0R+Y=
 github.com/james-antill/rename-on-close v0.0.0-20181008023607-cfbc20f39567/go.mod h1:emgvc97Z5HXIZXkTB7qli0Bnl27qbthhAhlCRr9FtNc=
+golang.org/x/text v0.17.0 h1:XtiM5bkSOt+ewxlOE/aE/AKEHibwj/6gvWMl9Rsh0Qc=
+golang.org/x/text v0.17.0/go.mod h1:BuEKDfySbSR4drPmRPG/7iBdf8hvFMuRexcpahXilzY=

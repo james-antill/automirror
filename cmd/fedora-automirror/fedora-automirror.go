@@ -545,12 +545,10 @@ func _setup(fs *fedStore) {
 	}
 
 	fmt.Println("Upstream:", fs.upstream)
-	fmt.Println("Remote-Directories:", fs.fdata.NumDirs())
-	fmt.Println("Remote-Files:", fs.fdata.NumFiles())
+	fmt.Println("Remote-Directories:", num2ui(fs.NumDirs()))
+	fmt.Println("Remote-Files:", num2ui(fs.NumFiles()))
 
-	total := fs.fdata.RootDir().Size()
-
-	fmt.Println("Remote-Size:", total, size2ui(total))
+	fmt.Println("Remote-Size:", num2ui(fs.Size()), size2ui(fs.Size()))
 
 	var lfiles int64
 	var ldirs int64
@@ -610,10 +608,10 @@ func _setup(fs *fedStore) {
 		fmt.Fprintf(os.Stderr, "Failed to Walk (%s): %s\n", fs.prefix, err)
 	}
 
-	fmt.Println("Local-Directories:", ldirs)
-	fmt.Println("Local-Files:", lfiles)
-	fmt.Println("Local-Size:", lsize, size2ui(lsize))
-	fmt.Println("Local-Index:", lindex, size2ui(lindex))
+	fmt.Println("Local-Directories:", num2ui(ldirs))
+	fmt.Println("Local-Files:", num2ui(lfiles))
+	fmt.Println("Local-Size:", size2ui(lsize))
+	fmt.Println("Local-Index:", size2ui(lindex))
 }
 
 func setup_Fedora() *fedStore {
@@ -652,6 +650,24 @@ func setup_FedoraAlt() *fedStore {
 	return fs
 }
 
+func setup_Rocky() *fedStore {
+	fedora_upstream := "https://dl.rockylinux.org/pub/rocky"
+	fedora_prefix := "/Rocky/"
+
+	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-rocky")
+	_setup(fs)
+	return fs
+}
+
+func setup_RockySIG() *fedStore {
+	fedora_upstream := "https://dl.rockylinux.org/pub/sig"
+	fedora_prefix := "/Rocky-SIG/"
+
+	fs := NewFedstore(fedora_upstream, fedora_prefix, "fullfiletimelist-sig")
+	_setup(fs)
+	return fs
+}
+
 func main() {
 	var (
 		fhelp    = flag.Bool("help", false, "display this message")
@@ -684,6 +700,8 @@ func main() {
 	fedfs := setup_Fedora()
 	fed2fs := setup_Fedora2nd()
 	fedafs := setup_FedoraAlt()
+	rockfs := setup_Rocky()
+	rocsfs := setup_RockySIG()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -694,17 +712,28 @@ func main() {
 		<h1> %s </h1>
 		<ul>
 		<li> <a href="/stats">stats</a></li>
-		<li> <a href="/CentOS/">CentOS</a></li>
-		<li> <a href="/EPEL/">EPEL</a> - Updated: %s</li>
-		<li> <a href="/Fedora/">Fedora</a> - Updated: %s</li>
-		<li> <a href="/Fedora-secondary/">Fedora secondary arches</a> - Updated: %s</li>
-		<li> <a href="/Fedora-alt/">Fedora alt</a> - Updated: %s</li>
+		<li> <a href="/EPEL/">EPEL</a> - Updated: %s - %s; Size: %s; Files: %s</li>
+		<li> <a href="/Fedora/">Fedora</a> - Updated: %s - %s; Size: %s; Files: %s</li>
+		<li> <a href="/Fedora-secondary/">Fedora secondary arches</a> - Updated: %s - %s; Size: %s; Files: %s</li>
+		<li> <a href="/Fedora-alt/">Fedora alt</a> - Updated: %s - %s; Size: %s; Files: %s</li>
+		<li> <a href="/Rocky/">Rocky</a> - Updated: %s - %s; Size: %s; Files: %s</li>
+		<li> <a href="/Rocky-SIG/">Rocky-SIG</a> - Updated: %s (%s); Size: %s; Files: %s</li>
 		</ul>
 		</body>
 		</html>
 		`, "Fedora automirror", "Fedora automirror",
-			mtime2ui(epelfs.indextm.Unix()), mtime2ui(fedfs.indextm.Unix()),
-			mtime2ui(fed2fs.indextm.Unix()), mtime2ui(fedafs.indextm.Unix()))
+			mtime2ui(epelfs.indextm.Unix()), since2ui(epelfs.indextm),
+			size2ui(epelfs.Size()), num2ui(epelfs.NumFiles()),
+			mtime2ui(fedfs.indextm.Unix()), since2ui(fedfs.indextm),
+			size2ui(fedfs.Size()), num2ui(fedfs.NumFiles()),
+			mtime2ui(fed2fs.indextm.Unix()), since2ui(fed2fs.indextm),
+			size2ui(fed2fs.Size()), num2ui(fed2fs.NumFiles()),
+			mtime2ui(fedafs.indextm.Unix()), since2ui(fedafs.indextm),
+			size2ui(fedafs.Size()), num2ui(fedafs.NumFiles()),
+			mtime2ui(rockfs.indextm.Unix()), since2ui(rockfs.indextm),
+			size2ui(rockfs.Size()), num2ui(rockfs.NumFiles()),
+			mtime2ui(rocsfs.indextm.Unix()), since2ui(rocsfs.indextm),
+			size2ui(rocsfs.Size()), num2ui(rocsfs.NumFiles()))
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, req *http.Request) {
@@ -721,6 +750,10 @@ func main() {
 		fmt.Fprintf(w, `  "Fedora2nd-Downloads":, %d,%s`, fed2fs.getDwn(), "\n")
 		fmt.Fprintf(w, `  "FedoraAlt-Reqs":, %d,%s`, fedafs.getReq(), "\n")
 		fmt.Fprintf(w, `  "FedoraAlt-Downloads":, %d,%s`, fedafs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "Rocky-Reqs":, %d,%s`, rockfs.getReq(), "\n")
+		fmt.Fprintf(w, `  "Rocky-Downloads":, %d,%s`, rockfs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "RockySIG-Reqs":, %d,%s`, rocsfs.getReq(), "\n")
+		fmt.Fprintf(w, `  "RockySIG-Downloads":, %d,%s`, rocsfs.getDwn(), "\n")
 
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
@@ -734,7 +767,7 @@ func main() {
 		// Number of completed GC cycles
 		fmt.Fprintf(w, `  "GC-Num":, %d,%s`, m.NumGC, "\n")
 
-		fmt.Fprintf(w, `  "Uptime":, "%s" }%s`, time.Since(fedfs.beg), "\n")
+		fmt.Fprintf(w, `  "Uptime":, "%s" }%s`, since2ui(fedfs.beg), "\n")
 	})
 
 	// hfs := http.StripPrefix(fs.prefix, fs)
@@ -743,8 +776,14 @@ func main() {
 	http.Handle(fedfs.prefix, fedfs)
 	http.Handle(fed2fs.prefix, fed2fs)
 	http.Handle(fedafs.prefix, fedafs)
+	http.Handle(rockfs.prefix, rockfs)
+	http.Handle(rocsfs.prefix, rocsfs)
 
 	fmt.Println("Ready")
-	http.ListenAndServe(":"+strconv.Itoa(*fport), nil)
+	err := http.ListenAndServe(":"+strconv.Itoa(*fport), nil)
 
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Serve: %s\n", err)
+		os.Exit(1)
+	}
 }

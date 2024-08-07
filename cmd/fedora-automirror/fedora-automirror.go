@@ -739,35 +739,35 @@ func main() {
 	http.HandleFunc("/stats", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		fmt.Fprintf(w, `{ "Version":, "%s",%s`, version, "\n")
-		// fmt.Fprintf(w, `  "CentOS-Reqs":, %d,%s`, centfs.getReq(), "\n")
-		// fmt.Fprintf(w, `  "CentOS-Downloads":, %d,%s`, centfs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "EPEL-Reqs":, %d,%s`, epelfs.getReq(), "\n")
-		fmt.Fprintf(w, `  "EPEL-Downloads":, %d,%s`, epelfs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "Fedora-Reqs":, %d,%s`, fedfs.getReq(), "\n")
-		fmt.Fprintf(w, `  "Fedora-Downloads":, %d,%s`, fedfs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "Fedora2nd-Reqs":, %d,%s`, fed2fs.getReq(), "\n")
-		fmt.Fprintf(w, `  "Fedora2nd-Downloads":, %d,%s`, fed2fs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "FedoraAlt-Reqs":, %d,%s`, fedafs.getReq(), "\n")
-		fmt.Fprintf(w, `  "FedoraAlt-Downloads":, %d,%s`, fedafs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "Rocky-Reqs":, %d,%s`, rockfs.getReq(), "\n")
-		fmt.Fprintf(w, `  "Rocky-Downloads":, %d,%s`, rockfs.getDwn(), "\n")
-		fmt.Fprintf(w, `  "RockySIG-Reqs":, %d,%s`, rocsfs.getReq(), "\n")
-		fmt.Fprintf(w, `  "RockySIG-Downloads":, %d,%s`, rocsfs.getDwn(), "\n")
+		fmt.Fprintf(w, `{ "Version": "%s",%s`, version, "\n")
+		// fmt.Fprintf(w, `  "CentOS-Reqs": %d,%s`, centfs.getReq(), "\n")
+		// fmt.Fprintf(w, `  "CentOS-Downloads": %d,%s`, centfs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "EPEL-Reqs": %d,%s`, epelfs.getReq(), "\n")
+		fmt.Fprintf(w, `  "EPEL-Downloads": %d,%s`, epelfs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "Fedora-Reqs": %d,%s`, fedfs.getReq(), "\n")
+		fmt.Fprintf(w, `  "Fedora-Downloads": %d,%s`, fedfs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "Fedora2nd-Reqs": %d,%s`, fed2fs.getReq(), "\n")
+		fmt.Fprintf(w, `  "Fedora2nd-Downloads": %d,%s`, fed2fs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "FedoraAlt-Reqs": %d,%s`, fedafs.getReq(), "\n")
+		fmt.Fprintf(w, `  "FedoraAlt-Downloads": %d,%s`, fedafs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "Rocky-Reqs": %d,%s`, rockfs.getReq(), "\n")
+		fmt.Fprintf(w, `  "Rocky-Downloads": %d,%s`, rockfs.getDwn(), "\n")
+		fmt.Fprintf(w, `  "RockySIG-Reqs": %d,%s`, rocsfs.getReq(), "\n")
+		fmt.Fprintf(w, `  "RockySIG-Downloads": %d,%s`, rocsfs.getDwn(), "\n")
 
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
 
 		// Bytes of allocated heap objects
-		fmt.Fprintf(w, `  "GC-Alloc":, %d,%s`, m.Alloc, "\n")
+		fmt.Fprintf(w, `  "GC-Alloc": %d,%s`, m.Alloc, "\n")
 		// Cumulative bytes allocated for heap objects
-		fmt.Fprintf(w, `  "GC-TotalAlloc":, %d,%s`, m.TotalAlloc, "\n")
+		fmt.Fprintf(w, `  "GC-TotalAlloc": %d,%s`, m.TotalAlloc, "\n")
 		// Total bytes of memory obtained from the OS
-		fmt.Fprintf(w, `  "GC-Sys":, %d,%s`, m.Sys, "\n")
+		fmt.Fprintf(w, `  "GC-Sys": %d,%s`, m.Sys, "\n")
 		// Number of completed GC cycles
-		fmt.Fprintf(w, `  "GC-Num":, %d,%s`, m.NumGC, "\n")
+		fmt.Fprintf(w, `  "GC-Num": %d,%s`, m.NumGC, "\n")
 
-		fmt.Fprintf(w, `  "Uptime":, "%s" }%s`, since2ui(fedfs.beg), "\n")
+		fmt.Fprintf(w, `  "Uptime": "%s" }%s`, since2ui(fedfs.beg), "\n")
 	})
 
 	// hfs := http.StripPrefix(fs.prefix, fs)

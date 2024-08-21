@@ -501,12 +501,17 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func fsRefresh(fs *fedStore) {
+	oindextm := fs.indextm
 	ioc, ior, err := fnsync(fs, fs.fftl, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Can't get/load file list (%s): %s\n", fs.upstream, err)
 		os.Exit(1)
 	}
 	defer ioc.Close()
+
+	if oindextm.Equal(fs.indextm) {
+		return
+	}
 
 	bior := bufio.NewReader(ior)
 

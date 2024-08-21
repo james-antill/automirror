@@ -602,17 +602,17 @@ func _setup(fs *fedStore) {
 			if !ok {
 				if d.IsDir() {
 					fmt.Println(" -> Cleanup-d:", path)
-					// os.RemoveAll(path)
+					os.RemoveAll(path)
 					return iofs.SkipDir
 				} else {
 					fmt.Println(" -> Cleanup:", path)
-					// os.Remove(path)
+					os.Remove(path)
 				}
 				return nil
 			}
 			if ent.IsDir() != d.IsDir() {
 				fmt.Println(" -> Cleanup-s:", ent.IsDir(), d.IsDir(), path)
-				// os.RemoveAll(path)
+				os.RemoveAll(path)
 				if d.IsDir() {
 					return iofs.SkipDir
 				}

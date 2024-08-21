@@ -735,12 +735,31 @@ func main() {
 	}
 
 	// centfs := setup_CentOS()
-	epelfs := setup_EPEL()
-	fedfs := setup_Fedora()
-	fed2fs := setup_Fedora2nd()
-	fedafs := setup_FedoraAlt()
-	rockfs := setup_Rocky()
-	rocsfs := setup_RockySIG()
+	var epelfs *fedStore
+	var fedfs *fedStore
+	var fed2fs *fedStore
+	var fedafs *fedStore
+	var rockfs *fedStore
+	var rocsfs *fedStore
+
+	_setup_all := func() {
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() { defer wg.Done(); epelfs = setup_EPEL() }()
+		wg.Add(1)
+		go func() { defer wg.Done(); fedfs = setup_Fedora() }()
+		wg.Add(1)
+		go func() { defer wg.Done(); fed2fs = setup_Fedora2nd() }()
+		wg.Add(1)
+		go func() { defer wg.Done(); fedafs = setup_FedoraAlt() }()
+		wg.Add(1)
+		go func() { defer wg.Done(); rockfs = setup_Rocky() }()
+		wg.Add(1)
+		go func() { defer wg.Done(); rocsfs = setup_RockySIG() }()
+
+		wg.Wait()
+	}
+	_setup_all()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -836,6 +855,17 @@ func main() {
 	http.Handle(fedafs.prefix, fedafs)
 	http.Handle(rockfs.prefix, rockfs)
 	http.Handle(rocsfs.prefix, rocsfs)
+
+	http.HandleFunc("/_reload", func(w http.ResponseWriter, req *http.Request) {
+		// FIXME: use timer, and need locking...
+		w.Header().Set("Content-Type", "text/plain")
+
+		beg := time2ui(time.Now())
+		fmt.Fprintf(w, "Setup: %s\n", beg)
+		_setup_all()
+		end := time2ui(time.Now())
+		fmt.Fprintf(w, "Done: %s\n", end)
+	})
 
 	fmt.Println("Ready")
 	err := http.ListenAndServe(":"+strconv.Itoa(*fport), nil)

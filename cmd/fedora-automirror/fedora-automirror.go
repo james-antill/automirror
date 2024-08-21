@@ -83,21 +83,38 @@ func fnsync(fs *fedStore, ufname string, ent automirror.FSnode) (
 
 	fi, err := os.Stat(lfname)
 	if err == nil { // File exists...
-		if ent != nil {
-			// We can't do fi.ModTime().Equal(ent.ModTime()) &&
-			// ...because in the fullfiletimelist data the mtime is actually:
-			// max(mtime, ctime)
-			if fi.Size() == ent.Size() {
-				local = true
-				// } else {
-				//	fmt.Println("JDBG:", "tm:", fi.ModTime(), ent.ModTime())
-				//	fmt.Println("JDBG:", "sz:", fi.Size(), ent.Size())
-			}
+		probe_head := false
+		if ent == nil {
+			probe_head = true
 		} else {
+			// Note that mtime is actually:
+			// max(mtime, ctime)
+			// ...so we have to be clever:
+			if fi.Size() == ent.Size() {
+				if fi.ModTime().Equal(ent.ModTime()) {
+					local = true
+				} else if fi.ModTime().Before(ent.ModTime()) {
+					// Possible upstream ctime is what we have
+					probe_head = true
+				} else {
+					probe_head = true
+					ent = nil
+				}
+			} else {
+				probe_head = true
+				ent = nil
+			}
+		}
+
+		if probe_head {
 			// Use if-modified-since for a single call?
 			local = _fnHEAD(upstream+"/"+ufname, fi.ModTime(), fi.Size())
 			if local && ufname == fs.fftl {
 				fs.indextm = fi.ModTime()
+			}
+			if local && ent != nil {
+				// FIXME: Needs locking...
+				ent.SetMtimeS(fi.ModTime().Unix())
 			}
 		}
 	}

@@ -110,6 +110,7 @@ func fnsync(fs *fedStore, ufname string, ent automirror.FSnode) (
 			// Use if-modified-since for a single call?
 			local = _fnHEAD(upstream+"/"+ufname, fi.ModTime(), fi.Size())
 			if local && ufname == fs.fftl {
+				// FIXME: This is updated async in refresh now too...
 				fs.indextm = fi.ModTime()
 			}
 			if local && ent != nil {
@@ -499,7 +500,7 @@ func (fs *fedStore) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	fmt.Println(" -> Done:", tm, req.URL.Path)
 }
 
-func _setup(fs *fedStore) {
+func fsRefresh(fs *fedStore) {
 	ioc, ior, err := fnsync(fs, fs.fftl, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Can't get/load file list (%s): %s\n", fs.upstream, err)
@@ -531,7 +532,7 @@ func _setup(fs *fedStore) {
 	// Now it's a list of
 	// <timestamp> \t <type> \t <size> \t <name>
 	// 1717564457	f	282	linux/extras/README
-
+	var nfdata *automirror.RootFS = automirror.NewRoot()
 	for num := 1; true; num++ {
 		line, prefix, err := bior.ReadLine()
 
@@ -559,14 +560,14 @@ func _setup(fs *fedStore) {
 
 		switch string(ftype) {
 		case "f":
-			fs.fdata.AddFile(string(fname), b2i(fmtime), b2i(fsize))
+			nfdata.AddFile(string(fname), b2i(fmtime), b2i(fsize))
 		case "d":
 			sfname := string(fname)
-			n, ok := fs.fdata.Lookup(sfname)
+			n, ok := nfdata.Lookup(sfname)
 			if ok {
 				n.SetMtimeS(b2i(fmtime))
 			} else {
-				fs.fdata.AddDirectory(string(fname), b2i(fmtime))
+				nfdata.AddDirectory(string(fname), b2i(fmtime))
 			}
 		}
 	}
@@ -598,7 +599,7 @@ func _setup(fs *fedStore) {
 
 			mpath := strings.TrimPrefix(path, fs.prefix[1:])
 
-			ent, ok := fs.fdata.Lookup(mpath)
+			ent, ok := nfdata.Lookup(mpath)
 			if !ok {
 				if d.IsDir() {
 					fmt.Println(" -> Cleanup-d:", path)
@@ -634,6 +635,8 @@ func _setup(fs *fedStore) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to Walk (%s): %s\n", fs.prefix, err)
 	}
+	// FIXME: This is update should be locked...
+	fs.fdata = nfdata
 
 	fmt.Println("Local-Directories:", num2ui(ldirs))
 	fmt.Println("Local-Files:", num2ui(lfiles))
@@ -648,7 +651,6 @@ func setup_Fedora() *fedStore {
 	fftl := "fullfiletimelist-fedora"
 
 	fs := NewFedstore(name, upstream, prefix, fftl)
-	_setup(fs)
 	return fs
 }
 
@@ -659,7 +661,6 @@ func setup_EPEL() *fedStore {
 	fftl := "fullfiletimelist-epel"
 
 	fs := NewFedstore(name, upstream, prefix, fftl)
-	_setup(fs)
 	return fs
 }
 
@@ -670,7 +671,6 @@ func setup_Fedora2nd() *fedStore {
 	fftl := "fullfiletimelist-fedora-secondary"
 
 	fs := NewFedstore(name, upstream, prefix, fftl)
-	_setup(fs)
 	return fs
 }
 
@@ -681,7 +681,6 @@ func setup_FedoraAlt() *fedStore {
 	fftl := "fullfiletimelist-alt"
 
 	fs := NewFedstore(name, upstream, prefix, fftl)
-	_setup(fs)
 	return fs
 }
 
@@ -692,7 +691,6 @@ func setup_Rocky() *fedStore {
 	fftl := "fullfiletimelist-rocky"
 
 	fs := NewFedstore(name, upstream, prefix, fftl)
-	_setup(fs)
 	return fs
 }
 
@@ -703,7 +701,6 @@ func setup_RockySIG() *fedStore {
 	fftl := "fullfiletimelist-sig"
 
 	fs := NewFedstore(name, upstream, prefix, fftl)
-	_setup(fs)
 	return fs
 }
 
@@ -735,31 +732,31 @@ func main() {
 	}
 
 	// centfs := setup_CentOS()
-	var epelfs *fedStore
-	var fedfs *fedStore
-	var fed2fs *fedStore
-	var fedafs *fedStore
-	var rockfs *fedStore
-	var rocsfs *fedStore
+	epelfs := setup_EPEL()
+	fedfs := setup_Fedora()
+	fed2fs := setup_Fedora2nd()
+	fedafs := setup_FedoraAlt()
+	rockfs := setup_Rocky()
+	rocsfs := setup_RockySIG()
 
-	_setup_all := func() {
+	_refresh_all := func() {
 		var wg sync.WaitGroup
 		wg.Add(1)
-		go func() { defer wg.Done(); epelfs = setup_EPEL() }()
+		go func() { defer wg.Done(); fsRefresh(epelfs) }()
 		wg.Add(1)
-		go func() { defer wg.Done(); fedfs = setup_Fedora() }()
+		go func() { defer wg.Done(); fsRefresh(fedfs) }()
 		wg.Add(1)
-		go func() { defer wg.Done(); fed2fs = setup_Fedora2nd() }()
+		go func() { defer wg.Done(); fsRefresh(fed2fs) }()
 		wg.Add(1)
-		go func() { defer wg.Done(); fedafs = setup_FedoraAlt() }()
+		go func() { defer wg.Done(); fsRefresh(fedafs) }()
 		wg.Add(1)
-		go func() { defer wg.Done(); rockfs = setup_Rocky() }()
+		go func() { defer wg.Done(); fsRefresh(rockfs) }()
 		wg.Add(1)
-		go func() { defer wg.Done(); rocsfs = setup_RockySIG() }()
+		go func() { defer wg.Done(); fsRefresh(rocsfs) }()
 
 		wg.Wait()
 	}
-	_setup_all()
+	_refresh_all()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -862,10 +859,19 @@ func main() {
 
 		beg := time2ui(time.Now())
 		fmt.Fprintf(w, "Setup: %s\n", beg)
-		_setup_all()
+
+		_refresh_all()
+
 		end := time2ui(time.Now())
 		fmt.Fprintf(w, "Done: %s\n", end)
 	})
+
+	go func() {
+		ticker := time.NewTicker(55 * time.Minute)
+		for range ticker.C {
+			_refresh_all()
+		}
+	}()
 
 	fmt.Println("Ready")
 	err := http.ListenAndServe(":"+strconv.Itoa(*fport), nil)

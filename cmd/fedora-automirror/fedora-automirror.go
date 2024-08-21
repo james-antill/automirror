@@ -572,11 +572,11 @@ func fsRefresh(fs *fedStore) {
 		}
 	}
 
-	fmt.Println("Upstream:", fs.upstream)
-	fmt.Println("Remote-Directories:", num2ui(fs.NumDirs()))
-	fmt.Println("Remote-Files:", num2ui(fs.NumFiles()))
+	fmt.Println(fs.name, "Upstream:", fs.upstream)
+	fmt.Println(fs.name, "Remote-Directories:", num2ui(fs.NumDirs()))
+	fmt.Println(fs.name, "Remote-Files:", num2ui(fs.NumFiles()))
 
-	fmt.Println("Remote-Size:", num2ui(fs.Size()), size2ui(fs.Size()))
+	fmt.Println(fs.name, "Remote-Size:", num2ui(fs.Size()), size2ui(fs.Size()))
 
 	var lfiles int64
 	var ldirs int64
@@ -602,17 +602,17 @@ func fsRefresh(fs *fedStore) {
 			ent, ok := nfdata.Lookup(mpath)
 			if !ok {
 				if d.IsDir() {
-					fmt.Println(" -> Cleanup-d:", path)
+					fmt.Println(fs.name, " -> Cleanup-d:", path)
 					os.RemoveAll(path)
 					return iofs.SkipDir
 				} else {
-					fmt.Println(" -> Cleanup:", path)
+					fmt.Println(fs.name, " -> Cleanup:", path)
 					os.Remove(path)
 				}
 				return nil
 			}
 			if ent.IsDir() != d.IsDir() {
-				fmt.Println(" -> Cleanup-s:", ent.IsDir(), d.IsDir(), path)
+				fmt.Println(fs.name, " -> Cleanup-s:", ent.IsDir(), d.IsDir(), path)
 				os.RemoveAll(path)
 				if d.IsDir() {
 					return iofs.SkipDir
@@ -638,10 +638,10 @@ func fsRefresh(fs *fedStore) {
 	// FIXME: This is update should be locked...
 	fs.fdata = nfdata
 
-	fmt.Println("Local-Directories:", num2ui(ldirs))
-	fmt.Println("Local-Files:", num2ui(lfiles))
-	fmt.Println("Local-Size:", size2ui(lsize))
-	fmt.Println("Local-Index:", size2ui(lindex))
+	fmt.Println(fs.name, "Local-Directories:", num2ui(ldirs))
+	fmt.Println(fs.name, "Local-Files:", num2ui(lfiles))
+	fmt.Println(fs.name, "Local-Size:", size2ui(lsize))
+	fmt.Println(fs.name, "Local-Index:", size2ui(lindex))
 }
 
 func setup_Fedora() *fedStore {

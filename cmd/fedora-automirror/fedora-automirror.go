@@ -141,7 +141,7 @@ func fnsync(fs *fedStore, ufname string, ent automirror.FSnode) (
 
 		fs.incDwn()
 		tm := time2ui(time.Now())
-		fmt.Fprintln(os.Stdout, " -> Downloading:", tm, resp.ContentLength, ufname)
+		fmt.Fprintln(os.Stdout, " -> Downloading:", tm, resp.ContentLength, lfname)
 
 		if _, err := io.Copy(nf, resp.Body); err != nil {
 			return nil, nil, err

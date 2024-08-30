@@ -269,6 +269,11 @@ func num2ui(size int64) string {
 	return p.Sprintf("%d", size)
 }
 
+func unum2ui(size uint64) string {
+	p := message.NewPrinter(language.English)
+	return p.Sprintf("%d", size)
+}
+
 type fedStore struct {
 	name     string
 	upstream string
@@ -578,10 +583,6 @@ func fsRefresh(fs *fedStore) {
 	}
 
 	fmt.Println(fs.name, "Upstream:", fs.upstream)
-	fmt.Println(fs.name, "Remote-Directories:", num2ui(fs.NumDirs()))
-	fmt.Println(fs.name, "Remote-Files:", num2ui(fs.NumFiles()))
-
-	fmt.Println(fs.name, "Remote-Size:", num2ui(fs.Size()), size2ui(fs.Size()))
 
 	var lfiles int64
 	var ldirs int64
@@ -642,6 +643,10 @@ func fsRefresh(fs *fedStore) {
 	}
 	// FIXME: This is update should be locked...
 	fs.fdata = nfdata
+
+	fmt.Println(fs.name, "Remote-Directories:", num2ui(fs.NumDirs()))
+	fmt.Println(fs.name, "Remote-Files:", num2ui(fs.NumFiles()))
+	fmt.Println(fs.name, "Remote-Size:", num2ui(fs.Size()), size2ui(fs.Size()))
 
 	fmt.Println(fs.name, "Local-Directories:", num2ui(ldirs))
 	fmt.Println(fs.name, "Local-Files:", num2ui(lfiles))
@@ -715,7 +720,9 @@ func main() {
 		fversion = flag.Bool("version", false, "display version")
 		fport    = flag.Int("P", 80, `default port to use (default: 80)`)
 		fpath    = flag.String("path", ".", `Root for storage`)
+		fstats   = flag.Bool("load-stats", false, `load all the data, print some stats. and exit (default: false)`)
 	)
+	startuptm := time.Now()
 
 	flag.Parse()
 
@@ -877,6 +884,23 @@ func main() {
 			_refresh_all()
 		}
 	}()
+
+	if *fstats {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+
+		fmt.Printf("Time: %s\n", since2ui(startuptm))
+
+		// Bytes of allocated heap objects
+		fmt.Printf("Alloc: %s\n", unum2ui(m.Alloc))
+		// Cumulative bytes allocated for heap objects
+		fmt.Printf("TotalAlloc: %s\n", unum2ui(m.TotalAlloc))
+		// Total bytes of memory obtained from the OS
+		fmt.Printf("Sys: %s\n", unum2ui(m.Sys))
+		// Number of completed GC cycles
+		fmt.Printf("Num: %s\n", unum2ui(uint64(m.NumGC)))
+		os.Exit(0)
+	}
 
 	fmt.Println("Ready")
 	err := http.ListenAndServe(":"+strconv.Itoa(*fport), nil)

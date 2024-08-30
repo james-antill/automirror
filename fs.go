@@ -83,25 +83,15 @@ func (n *fSnodeD) lookupFile(name string) *fSnodeF {
 	}
 	return nil
 }
-func (n *fSnodeD) addBlankDir(name string) *fSnodeD {
+
+func (n *fSnodeD) addDir(nd *fSnodeD) {
 	// FIXME: Sort...
-	ret := &fSnodeD{name: name}
-	n.cdirs = append(n.cdirs, ret)
-	return ret
+	n.cdirs = append(n.cdirs, nd)
 }
 
-func (n *fSnodeD) addDir(name string, mtime int64) *fSnodeD {
+func (n *fSnodeD) addFile(nf *fSnodeF) {
 	// FIXME: Sort...
-	ret := &fSnodeD{name: name, mtimeSecs: mtime}
-	n.cdirs = append(n.cdirs, ret)
-	return ret
-}
-
-func (n *fSnodeD) addFile(name string, mtime int64, size int64) *fSnodeF {
-	// FIXME: Sort...
-	ret := &fSnodeF{name: name, mtimeSecs: mtime, size: size}
-	n.cfiles = append(n.cfiles, ret)
-	return ret
+	n.cfiles = append(n.cfiles, nf)
 }
 
 func (n *fSnodeD) numDirs() int64 {
@@ -153,10 +143,13 @@ func (n *fSnodeF) Children() []FSnode    { return nil }
 // FSnodeF Root of a file tree of directories/files
 type RootFS struct {
 	root *fSnodeD
+
+	nds []fSnodeD
+	nfs []fSnodeF
 }
 
 func NewRoot() *RootFS {
-	return &RootFS{&fSnodeD{name: "/"}}
+	return &RootFS{&fSnodeD{name: "/"}, nil, nil}
 }
 
 func (r *RootFS) lookupPDir(path string, create bool) (*fSnodeD, string) {
@@ -170,7 +163,8 @@ func (r *RootFS) lookupPDir(path string, create bool) (*fSnodeD, string) {
 	for len(paths) > 1 {
 		n := d.lookupDir(paths[0])
 		if n == nil && create {
-			n = d.addBlankDir(paths[0])
+			n = r.allocDirectory(paths[0], 0)
+			d.addDir(n)
 		}
 		if n == nil {
 			return nil, ""
@@ -207,15 +201,49 @@ func (r *RootFS) Lookup(path string) (FSnode, bool) {
 	return nil, false
 }
 
+// const block_alloc_size int = 0
+// const block_alloc_size int = 1000
+const block_alloc_size int = ((1024 * 8) - 32) / 24
+
+func (r *RootFS) allocDirectory(name string, mtime int64) *fSnodeD {
+	if block_alloc_size > 0 {
+		if len(r.nds) == 0 {
+			r.nds = make([]fSnodeD, block_alloc_size)
+		}
+		nd := &r.nds[0]
+		r.nds = r.nds[1:]
+		nd.name = name
+		nd.mtimeSecs = mtime
+		return nd
+	} else {
+		nd := &fSnodeD{name: name, mtimeSecs: mtime}
+		return nd
+	}
+}
+
 func (r *RootFS) AddDirectory(path string, mtime int64) {
 	d, name := r.lookupPDir(path, true)
 
-	d.addDir(name, mtime)
+	nd := r.allocDirectory(name, mtime)
+	d.addDir(nd)
 }
 func (r *RootFS) AddFile(path string, mtime int64, size int64) {
 	d, name := r.lookupPDir(path, true)
 
-	d.addFile(name, mtime, size)
+	if block_alloc_size > 0 {
+		if len(r.nfs) == 0 {
+			r.nfs = make([]fSnodeF, block_alloc_size)
+		}
+		nf := &r.nfs[0]
+		r.nfs = r.nfs[1:]
+		nf.name = name
+		nf.mtimeSecs = mtime
+		nf.size = size
+		d.addFile(nf)
+	} else {
+		nf := &fSnodeF{name: name, mtimeSecs: mtime, size: size}
+		d.addFile(nf)
+	}
 }
 
 func (r *RootFS) NumDirs() int64 {

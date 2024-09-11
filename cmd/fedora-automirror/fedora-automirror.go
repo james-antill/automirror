@@ -714,6 +714,16 @@ func setup_RockySIG() *fedStore {
 	return fs
 }
 
+func setup_CentOSStream() *fedStore {
+	name := "CentOS Stream"
+	upstream := "https://mirror.stream.centos.org"
+	prefix := "/CentOS-Stream/"
+	fftl := "fullfiletimelist"
+
+	fs := NewFedstore(name, upstream, prefix, fftl)
+	return fs
+}
+
 func main() {
 	var (
 		fhelp    = flag.Bool("help", false, "display this message")
@@ -743,7 +753,7 @@ func main() {
 		}
 	}
 
-	// centfs := setup_CentOS()
+	centfs := setup_CentOSStream()
 	epelfs := setup_EPEL()
 	fedfs := setup_Fedora()
 	fed2fs := setup_Fedora2nd()
@@ -753,6 +763,8 @@ func main() {
 
 	_refresh_all := func() {
 		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() { defer wg.Done(); fsRefresh(centfs) }()
 		wg.Add(1)
 		go func() { defer wg.Done(); fsRefresh(epelfs) }()
 		wg.Add(1)
@@ -786,6 +798,7 @@ func main() {
 		<li> <a href="/stats">stats</a></li>
 `, "Fedora automirror", "Fedora automirror")
 
+		mirprnt(centfs)
 		mirprnt(epelfs)
 		mirprnt(fedfs)
 		mirprnt(fed2fs)
@@ -831,6 +844,7 @@ func main() {
 
 		fmt.Fprintf(w, `{ "Version": "%s",%s`, version, "\n")
 		fmt.Fprintf(w, `  "Mirrors": {%s`, "\n")
+		mirprnt(centfs, false)
 		mirprnt(epelfs, false)
 		mirprnt(fedfs, false)
 		mirprnt(fed2fs, false)
@@ -856,8 +870,7 @@ func main() {
 		fmt.Fprintf(w, `  "Uptime": "%s" }%s`, since2ui(fedfs.beg), "\n")
 	})
 
-	// hfs := http.StripPrefix(fs.prefix, fs)
-	//	http.Handle("/CentOS/", centfs)
+	http.Handle(centfs.prefix, centfs)
 	http.Handle(epelfs.prefix, epelfs)
 	http.Handle(fedfs.prefix, fedfs)
 	http.Handle(fed2fs.prefix, fed2fs)

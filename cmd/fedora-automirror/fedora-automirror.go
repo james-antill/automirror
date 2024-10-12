@@ -785,7 +785,9 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 
+		var allSize int64 = 0
 		mirprnt := func(fs *fedStore) {
+			allSize += fs.Size()
 			fmt.Fprintf(w, ` <li> <a href="%s">%s</a> - %s @%s</li>
 `, fs.prefix, fs.name, size2ui(fs.Size()), since2ui(fs.indextm))
 		}
@@ -806,6 +808,8 @@ func main() {
 		mirprnt(rockfs)
 		mirprnt(rocsfs)
 
+		fmt.Fprintf(w, ` <li> Total - %s @%s</li>
+`, size2ui(allSize), since2ui(startuptm))
 		fmt.Fprintf(w, `
 		</ul>
 		</body>

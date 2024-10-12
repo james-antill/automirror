@@ -167,13 +167,18 @@ func (n *fSnodeF) Children() []FSnode    { return nil }
 type RootFS struct {
 	root *fSnodeD
 
+	pDirNode *fSnodeD
+	pDirPath []string
+
 	nds []fSnodeD
 	nfs []fSnodeF
 }
 
 func NewRoot() *RootFS {
-	return &RootFS{&fSnodeD{name: "/"}, nil, nil}
+	return &RootFS{root: &fSnodeD{name: "/"}}
 }
+
+const cachePDir = true
 
 func (r *RootFS) lookupPDir(path string, create bool) (*fSnodeD, string) {
 	if path[0] == '/' {
@@ -182,7 +187,16 @@ func (r *RootFS) lookupPDir(path string, create bool) (*fSnodeD, string) {
 
 	d := r.root
 
-	paths := strings.Split(path, "/")
+	opaths := strings.Split(path, "/")
+	paths := opaths
+	// See if we've cache a parent of the tree...
+	if r.pDirNode != nil && len(paths) > len(r.pDirPath) {
+		if slices.Equal(r.pDirPath, paths[:len(r.pDirPath)]) {
+			d = r.pDirNode
+			paths = paths[len(r.pDirPath):]
+		}
+	}
+
 	for len(paths) > 1 {
 		n := d.lookupDir(paths[0])
 		if n == nil && create {
@@ -195,6 +209,11 @@ func (r *RootFS) lookupPDir(path string, create bool) (*fSnodeD, string) {
 
 		d = n
 		paths = paths[1:]
+	}
+
+	if cachePDir {
+		r.pDirNode = d
+		r.pDirPath = opaths[:len(opaths)-1]
 	}
 
 	return d, paths[0]
@@ -250,6 +269,7 @@ func (r *RootFS) AddDirectory(path string, mtime int64) {
 	nd := r.allocDirectory(name, mtime)
 	d.addDir(nd)
 }
+
 func (r *RootFS) AddFile(path string, mtime int64, size int64) {
 	d, name := r.lookupPDir(path, true)
 

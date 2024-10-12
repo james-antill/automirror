@@ -2,6 +2,7 @@ package automirror
 
 import (
 	"io/fs"
+	"slices"
 	"strings"
 	"time"
 )
@@ -65,33 +66,55 @@ func (n *fSnodeD) Children() []FSnode {
 	return ret
 }
 
-func (n *fSnodeD) lookupDir(name string) *fSnodeD {
-	// FIXME: Sort...
-	for _, c := range n.cdirs {
-		if name == c.Name() {
-			return c
-		}
+type named interface {
+	Name() string
+}
+
+// Does both dir/file...
+func fSnodeBinaryLookup[T named](ts []T, t T) (int, bool) {
+	return slices.BinarySearchFunc(ts, t, func(a, b T) int {
+		return strings.Compare(a.Name(), b.Name())
+	})
+}
+
+// Does both dir/file...
+func fSnodeBinaryInsert[T named](ts []T, t T) []T {
+	if len(ts) == 0 {
+		return append(ts, t)
 	}
+
+	i, _ := fSnodeBinaryLookup(ts, t)
+
+	return slices.Insert(ts, i, t)
+}
+
+func (n *fSnodeD) lookupDir(name string) *fSnodeD {
+	t := &fSnodeD{name: name}
+	i, found := fSnodeBinaryLookup(n.cdirs, t)
+
+	if found {
+		return n.cdirs[i]
+	}
+
 	return nil
 }
 func (n *fSnodeD) lookupFile(name string) *fSnodeF {
-	// FIXME: Sort...
-	for _, c := range n.cfiles {
-		if name == c.Name() {
-			return c
-		}
+	t := &fSnodeF{name: name}
+	i, found := fSnodeBinaryLookup(n.cfiles, t)
+
+	if found {
+		return n.cfiles[i]
 	}
+
 	return nil
 }
 
 func (n *fSnodeD) addDir(nd *fSnodeD) {
-	// FIXME: Sort...
-	n.cdirs = append(n.cdirs, nd)
+	n.cdirs = fSnodeBinaryInsert[*fSnodeD](n.cdirs, nd)
 }
 
 func (n *fSnodeD) addFile(nf *fSnodeF) {
-	// FIXME: Sort...
-	n.cfiles = append(n.cfiles, nf)
+	n.cfiles = fSnodeBinaryInsert[*fSnodeF](n.cfiles, nf)
 }
 
 func (n *fSnodeD) numDirs() int64 {

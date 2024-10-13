@@ -66,6 +66,15 @@ func (n *fSnodeD) Children() []FSnode {
 	return ret
 }
 
+// Good for unordered data...
+func Compare(a, b string) int {
+	if len(a) == len(b) {
+		return strings.Compare(a, b)
+	}
+
+	return len(a) - len(b)
+}
+
 type named interface {
 	Name() string
 }
@@ -79,7 +88,7 @@ func fSnodeBinaryLookup[T named](ts []T, t T) (int, bool) {
 
 // Does both dir/file...
 func fSnodeBinaryInsert[T named](ts []T, t T) []T {
-	if len(ts) == 0 {
+	if len(ts) == 0 || (strings.Compare(t.Name(), ts[len(ts)-1].Name()) > 0) {
 		return append(ts, t)
 	}
 
